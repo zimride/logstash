@@ -15,4 +15,8 @@ class LogStash::EventProfiler
       @@filter_calls[type][filter] += 1
     end
   end # def self.record_profile
+
+  public
+  def self.filter_time; return @@filter_time; end
+  def self.filter_calls; return @@filter_calls; end
 end # class LogStash::Event
