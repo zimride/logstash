@@ -36,6 +36,8 @@ class LogStash::Outputs::Base < LogStash::Plugin
       return
     end
 
+    event.profile_start(to_s) if @logger.level == Logger::DEBUG
     receive(event)
+    event.profile_end(to_s) if @logger.level == Logger::DEBUG
   end # def handle
 end # class LogStash::Outputs::Base
