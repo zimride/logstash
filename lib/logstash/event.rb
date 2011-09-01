@@ -122,7 +122,19 @@ class LogStash::Event
   
   public
   def to_json(*args); return @data.to_json(*args) end # def to_json
+
+  public
   def to_hash; return @data end # def to_hash
+
+  public
+  def to_json_with_profile(*args)
+    return to_hash_with_profile.to_json(*args)
+  end # def to_json_with_profile
+
+  public
+  def to_hash_with_profile
+    return @data.merge({"@profile" => @profile})
+  end # def to_hash_with_profile
 
   public
   def overwrite(event)

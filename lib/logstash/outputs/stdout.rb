@@ -37,9 +37,9 @@ class LogStash::Outputs::Stdout < LogStash::Outputs::Base
     if @debug
       case @debug_format.first
         when "ruby"
-          @print_method.call(event.to_hash)
+          @print_method.call(event.to_hash_with_profile)
         when "json"
-          puts event.to_json
+          puts event.to_json_with_profile
         else
           raise "unknown debug_format #{@debug_format}, this should never happen"
       end
