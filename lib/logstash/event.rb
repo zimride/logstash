@@ -1,4 +1,5 @@
 require "json"
+require "logstash/eventprofiler"
 require "logstash/time"
 require "logstash/namespace"
 require "uri"
@@ -6,6 +7,8 @@ require "uri"
 # General event type. 
 # Basically a light wrapper on top of a hash.
 class LogStash::Event
+  attr_reader :profile
+
   public
   def initialize(data=Hash.new)
     @@date_parser ||= org.joda.time.format.ISODateTimeFormat.dateTimeParser.withOffsetParsed
@@ -21,6 +24,9 @@ class LogStash::Event
     if !@data.include?("@timestamp")
       @data["@timestamp"] = LogStash::Time.now.utc.to_iso8601
     end
+
+    @profile_start = {}
+    @profile = Hash.new { |h, k| h[k] = 0 }
   end # def initialize
 
   public
@@ -196,4 +202,19 @@ class LogStash::Event
 
     return other.to_hash == self.to_hash
   end # def ==
+
+  public
+  def profile_start(name)
+    @profile_start[name] = Time.now.to_f
+  end
+
+  public
+  def profile_end(name)
+    if @profile_start.member?(name)
+      elapsed = Time.now.to_f - @profile_start[name]
+      @profile[name] += elapsed
+      @profile_start.delete(name)
+      LogStash::EventProfiler.record_profile(type, name, elapsed)
+    end
+  end
 end # class LogStash::Event

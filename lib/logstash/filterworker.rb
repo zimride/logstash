@@ -47,9 +47,12 @@ class LogStash::FilterWorker < LogStash::Plugin
         # this is the best approach. The goal is to allow filters to modify
         # the current event, but if necessary, create new events based on
         # this event.
+        event.profile_start(filter.to_s) if @logger.level == Logger::DEBUG
         filter.filter(event) do |newevent|
           events << newevent
         end
+        event.profile_end(filter.to_s) if @logger.level == Logger::DEBUG
+
         if event.cancelled?
           @logger.debug({:message => "Event cancelled",
                         :event => event,
@@ -59,7 +62,8 @@ class LogStash::FilterWorker < LogStash::Plugin
         end
       end # @filters.each
 
-      @logger.debug(["Event finished filtering", event])
+      @logger.debug(["Event finished filtering",
+                     {:event => event, :profile => event.profile}])
       @output_queue.push(event) unless event.cancelled?
     end # events.each 
   end # def filter
