@@ -63,6 +63,7 @@ class LogStash::Agent
   public
   def log_to(target)
     @logger = LogStash::Logger.new(target)
+    Cabin::Channel.set("logstash", @logger)
   end # def log_to
 
   private
@@ -102,6 +103,16 @@ class LogStash::Agent
       path.split(":").each do |p|
         @plugin_paths << p unless @plugin_paths.include?(p)
       end
+    end
+
+    opts.on("--enable-web-management", "Enable web management") do |val|
+      p :vALVALVAL => val
+      @enable_web_management = val
+    end
+
+    opts.on("--web-management-address",
+            "Set web management host:port, default is localhost:9293") do |val|
+      @web_management_address = val
     end
   end # def options
 
@@ -295,6 +306,8 @@ class LogStash::Agent
     if remaining == false
       raise "Option parsing failed. See error log."
     end
+
+    start_management_interface if @enable_web_management
 
     configure
 
@@ -726,6 +739,18 @@ class LogStash::Agent
       end # if remaining == 0
     end # @plugins_mutex.synchronize
   end # def shutdown_if_none_running
+
+  def start_management_interface 
+    require "logstash/agent/web"
+    require "rack/handler/ftw"
+    Thread.new(@logger) do |logger|
+      app = LogStash::Agent::Web.new(@logger)
+      @web_management_address ||= "localhost:8080"
+      @logger.info("Starting web management")
+      host, port = @web_management_address.split(":")
+      Rack::Handler::FTW.run(app, :Host => host, :Port => port.to_i)
+    end
+  end # def start_management_interface
 end # class LogStash::Agent
 
 if __FILE__ == $0
