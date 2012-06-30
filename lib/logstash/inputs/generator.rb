@@ -28,7 +28,7 @@ class LogStash::Inputs::Generator < LogStash::Inputs::Threadable
 
   def run(queue)
     number = 0
-    source = "stdin://#{@host}/"
+    source = "generator://#{@host}/"
 
     if @message == "stdin"
       @logger.info("Generator plugin reading a line from stdin")
@@ -37,15 +37,10 @@ class LogStash::Inputs::Generator < LogStash::Inputs::Threadable
     end
 
     while !finished?
-      @metric_generate.time do
-        event = to_event(@message, source)
-        event["sequence"] = number
-        # Time how long each queue push takes.
-        number += 1
-        @metric_queue_write.time do
-          queue << event
-        end
-      end
+      event = to_event(@message, source)
+      event["sequence"] = number
+      number += 1
+      queue << event
     end # loop
   end # def run
 

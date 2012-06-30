@@ -14,6 +14,6 @@ class LogStash::Outputs::Null < LogStash::Outputs::Base
 
   public
   def receive(event)
-    @metric_hits.mark
+    #@metric_hits.mark
   end # def event
 end # class LogStash::Outputs::Null

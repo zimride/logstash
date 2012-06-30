@@ -29,6 +29,7 @@ class LogStash::Event
 
     if !@data.include?("@timestamp")
       @data["@timestamp"] = LogStash::Time.now.utc.to_iso8601
+      #@data["@timestamp"] = LogStash::Time.now.utc.to_f
     end
   end # def initialize
 

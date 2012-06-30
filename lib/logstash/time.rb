@@ -15,7 +15,8 @@ class LogStash::Time < ::Time
   def to_iso8601
     tz = self.utc? ? "Z" : self.strftime("%z")
     # zero-pad tv_usec so the time string is sortable.
-    return "%s.%06d%s" % [self.strftime(ISO8601), self.tv_usec, tz]
+    #return "%s.%06d%s" % [self.strftime(ISO8601), self.tv_usec, tz]
+    return "%04d-%02d-%02dT%02d:%02d:02d.%06d%s" % [year, month, day, hour, min, sec, tv_usec, tz]
   end
 
   def self.to_iso8601(obj)

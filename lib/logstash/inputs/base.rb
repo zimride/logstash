@@ -78,33 +78,49 @@ class LogStash::Inputs::Base < LogStash::Plugin
   def to_event(raw, source)
     @format ||= "plain"
 
-    event = LogStash::Event.new
-    event.type = @type
-    event.tags = @tags.clone rescue []
-    event.source = source
+    event = LogStash::Event.new(
+      "@type" => @type,
+      "@source" => source,
+      "@tags" => @tags.empty? ? [] : @tags.clone
+    )
 
-    case @format
-    when "plain"
+    send("to_event_#{@format}", event, raw)
+
+    @add_field.each do |field, value|
+       event[field] ||= []
+       event[field] = [event[field]] if !event[field].is_a?(Array)
+       event[field] << event.sprintf(value)
+    end
+
+    #logger.debug(["Received new event", {:source => source, :event => event}])
+    return event
+  end # def to_event
+
+  def to_event_json(event, raw)
+    begin
+      fields = JSON.parse(raw)
+      fields.each { |k, v| event[k] = v }
+    rescue => e
+      ## TODO(sissel): Instead of dropping the event, should we treat it as
+      ## plain text and try to do the best we can with it?
+      @logger.warn("Trouble parsing json input", :input => raw,
+                   :source => source, :exception => e,
+                   :backtrace => e.backtrace)
+      return nil
+    end
+
+    if @message_format
+      event.message = event.sprintf(@message_format)
+    else
       event.message = raw
-    when "json"
-      begin
-        fields = JSON.parse(raw)
-        fields.each { |k, v| event[k] = v }
-      rescue => e
-        ## TODO(sissel): Instead of dropping the event, should we treat it as
-        ## plain text and try to do the best we can with it?
-        @logger.warn("Trouble parsing json input", :input => raw,
-                     :source => source, :exception => e,
-                     :backtrace => e.backtrace)
-        return nil
-      end
+    end
+  end
 
-      if @message_format
-        event.message = event.sprintf(@message_format)
-      else
-        event.message = raw
-      end
-    when "json_event"
+  def to_event_plain(event, raw)
+    event.message = raw
+  end
+
+  def to_event_logstash(event, raw)
       begin
         event = LogStash::Event.from_json(raw)
         event.type ||= @type
@@ -116,17 +132,6 @@ class LogStash::Inputs::Base < LogStash::Plugin
                      :backtrace => e.backtrace)
         return nil
       end
-    else
-      raise "unknown event format #{@format}, this should never happen"
-    end
+  end
 
-    @add_field.each do |field, value|
-       event[field] ||= []
-       event[field] = [event[field]] if !event[field].is_a?(Array)
-       event[field] << event.sprintf(value)
-    end
-
-    logger.debug(["Received new event", {:source => source, :event => event}])
-    return event
-  end # def to_event
 end # class LogStash::Inputs::Base
