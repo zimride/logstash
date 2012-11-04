@@ -24,18 +24,22 @@ class Pipeline
   end
 
   def run
-    # one thread per input
     @input_threads = @inputs.collect do |input|
+      # one thread per input
       Thread.new(input) do |input|
         inputworker(input)
       end
     end
 
-    # one filterworker thread
-    #@filter_threads = @filters.collect do |input
-    # TODO(sissel): THIS IS WHERE I STOPPED WORKING
+    # one filterworker thread, for now
+    @filter_thread = Thread.new(@filters) do |filters|
+      filterworker(filters)
+    end
 
     # one outputworker thread
+    @output_thread = Thread.new(@outputs) do |outputs|
+      outputworker(outputs)
+    end
 
     # Now monitor input threads state
     # if all inputs are terminated, send shutdown signal to @input_to_filter
@@ -43,13 +47,16 @@ class Pipeline
 
   def inputworker(plugin)
     begin
+      # TODO(sissel): Update to use plugin.run { |event| @input_to_filter << event }
       plugin.run(@input_to_filter)
     rescue ShutdownSignal
       plugin.teardown
     rescue => e
+      # TODO(sissel): Race condition? What if we get a shutdown signal right now?
       @logger.error("Exception in plugin #{plugin.class}, restarting plugin.",
                     "plugin" => plugin.inspect, "exception" => e)
       plugin.teardown
+      
       retry
     end
   end # def 
@@ -58,17 +65,51 @@ class Pipeline
     begin
       while true
         event << @input_to_filter
-        break if event == :shutdown
+        break if event == ShutdownSignal
+
         @filters.each do |filter|
-          filter.filter(event)
+          begin
+            if filter.filter?(event)
+              success = filter.filter(event) do |newevent|
+                # if we get a new event here, it's assumed a success
+                # this will occur in filters like 'split' which turn
+                # a multiline message into multiple events.
+                filter.filter_matched(newevent) 
+                @filter_to_output << newevent
+              end
+              if success
+                # Apply any add_tag/add_field stuff if the filter was
+                # successful.
+                filter.filter_matched(event)
+              else
+                # Break filter iteration if the event was cancelled.
+                if event.cancelled?
+                  break
+                end
+              end
+            end # if filter.filter?
+          rescue => e
+            @logger.warn("An error occurred inside the #{plugin.config_name}" \
+                         "filter. LogStash has recovered from this and will " \
+                         "continue operating normally. However, this error " \
+                         "may be due to a bug, so feel free to file a ticket " \
+                         "with this full error message at " \
+                         "http://logstash.jira.com/",
+                         "plugin" => plugin.inspect, "event" => event,
+                         "exception" => e)
+          end # begin/rescue
+        end # @filters.each
+
+        # Ship the event down the pipeline
+        if !event.cancelled?
+          @filter_to_output << event
         end
-        next if event.cancelled?
-        @filter_to_output << event
       end
     rescue => e
       @logger.error("Exception in plugin #{plugin.class}",
                     "plugin" => plugin.inspect, "exception" => e)
     end
+
     @filters.each(&:teardown)
   end # def filterworker
 
@@ -78,7 +119,7 @@ class Pipeline
         event << @filter_to_output
         break if event == :shutdown
         @outputs.each do |output|
-          output.receive(event)
+          output.receive(event) if output.output?(event)
         end
       end
     rescue => e
@@ -89,30 +130,8 @@ class Pipeline
   end # def filterworker
 end # class Pipeline
 
-def twait(thread)
-  begin
-    puts :waiting => thread[:name]
-    thread.join
-    puts :donewaiting => thread[:name]
-  rescue => e
-    puts thread => e
-  end
-end
-
-def shutdown(input, filter, output)
-  input.each do |i|
-    i.raise("SHUTDOWN")
-  end
-
-  #filter.raise("SHUTDOWN")
-  #twait(filter)
-  output.raise("SHUTDOWN")
-  twait(output)
-end
-
 trap("INT") do
   puts "SIGINT"; shutdown(input_threads, filter_thread, output_thread)
   exit 1
 end
-
 
