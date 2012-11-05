@@ -124,7 +124,7 @@ class LogStash::Filters::Base < LogStash::Plugin
     end
   end # def filter_matched
 
-  protected
+  public
   def filter?(event)
     if !@type.empty?
       if event.type != @type

@@ -55,7 +55,7 @@ class LogStash::Outputs::Base < LogStash::Plugin
     receive(event)
   end # def handle
 
-  private
+  public
   def output?(event)
     if !@type.empty?
       if event.type != @type
