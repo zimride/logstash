@@ -1,6 +1,5 @@
 $: << "lib"
 require "logstash/config/file"
-require "logstash/agent"
 require "thread"
 require "cabin"
 
@@ -14,8 +13,7 @@ class Pipeline
 
     # hacks for now to parse a config string
     config = LogStash::Config::File.new(nil, configstr)
-    agent = LogStash::Agent.new
-    @inputs, @filters, @outputs = agent.instance_eval { parse_config(config) }
+    @inputs, @filters, @outputs = config.apply
 
     @inputs.collect(&:register)
     @filters.collect(&:register)
@@ -31,11 +29,15 @@ class Pipeline
   end
 
   def run
+    input_count = @inputs.count
+    input_completion_queue = Queue.new
+
     @input_threads = @inputs.collect do |input|
       # one thread per input
       Thread.new(input) do |input|
         Thread.current[:name] = input.class
         inputworker(input)
+        input_completion_queue << true
       end
     end
 
@@ -53,16 +55,9 @@ class Pipeline
       outputworker(outputs, queue)
     end
 
-    # Now monitor input threads state
-    # if all inputs are terminated, send shutdown signal to @input_to_filter
-    while true
-      if @input_threads.select(&:alive?).size == 0
-        shutdown
-        break
-      else
-        sleep 1
-      end
-    end
+    # Wait for all inputs to finish, then shutdown.
+    input_count.times { input_completion_queue.pop }
+    shutdown
   end # def run
 
   def shutdown
@@ -76,9 +71,10 @@ class Pipeline
     # Wait for everything to die.
     [*@input_threads, @filter_thread, @output_thread].each do |thread|
       next if thread.nil? # skip filter_thread if it doesn't exist.
-      while thread.alive?
+
+      # thread.join(<some timeout>) returns nil when the thread is still running
+      while thread.join(1).nil?
         @logger.info("Waiting for thread to finish", "thread" => thread[:name])
-        thread.join(1)
       end
     end
   end
