@@ -50,6 +50,41 @@ class LogStash::Config::File
     end
   end # def parse
 
+  # Applies a config file and get a [inputs, filters, outputs] list of plugin
+  # instances.
+  def apply
+    inputs = []
+    filters = []
+    outputs = []
+    parse do |plugin|
+      # 'plugin' is a has containing:
+      #   :type => the base class of the plugin (LogStash::Inputs::Base, etc)
+      #   :plugin => the class of the plugin (LogStash::Inputs::File, etc)
+      #   :parameters => hash of key-value parameters from the config.
+      type = plugin[:type].config_name  # "input" or "filter" etc...
+      klass = plugin[:plugin]
+
+      # Create a new instance of a plugin, called like:
+      # -> LogStash::Inputs::File.new( params )
+      instance = klass.new(plugin[:parameters])
+      instance.logger = @logger
+
+      case type
+        when "input"
+          inputs << instance
+        when "filter"
+          filters << instance
+        when "output"
+          outputs << instance
+        else
+          msg = "Unknown config type '#{type}'"
+          @logger.error(msg)
+          raise msg
+      end # case type
+    end # config.parse
+    return inputs, filters, outputs
+  end # def plugins
+
   public
   def tryload(parent, child)
     child = child.downcase if child.is_a? String
