@@ -95,7 +95,7 @@ class LogStash::Filters::Base < LogStash::Plugin
 
   # a filter instance should call filter_matched from filter if the event
   # matches the filter's conditions (right type, etc)
-  protected
+  public
   def filter_matched(event)
     (@add_field or {}).each do |field, value|
       event[field] ||= []
