@@ -72,13 +72,13 @@ class LogStash::Inputs::Tcp < LogStash::Inputs::Base
       @logger.debug("Closing connection after read timeout",
                     :client => socket.peer)
     end # begin
-
+  ensure
     begin
       socket.close
     rescue IOError
       pass
     end # begin
-  end
+  end # def handle_socket
 
   private
   def server?
@@ -92,26 +92,38 @@ class LogStash::Inputs::Tcp < LogStash::Inputs::Base
 
   public
   def run(output_queue)
+    @threads = []
     if server?
       loop do
         # Start a new thread for each connection.
-        Thread.start(@server_socket.accept) do |s|
+        @threads << Thread.new(@server_socket.accept) do |client|
           # TODO(sissel): put this block in its own method.
-
           # monkeypatch a 'peer' method onto the socket.
-          s.instance_eval { class << self; include ::LogStash::Util::SocketPeer end }
-          @logger.debug("Accepted connection", :client => s.peer,
+          client.instance_eval { class << self; include ::LogStash::Util::SocketPeer end }
+          @logger.debug("Accepted connection", :client => client.peer,
                         :server => "#{@host}:#{@port}")
-          handle_socket(s, output_queue, "tcp://#{@host}:#{@port}/client/#{s.peer}")
+          handle_socket(client, output_queue, "tcp://#{@host}:#{@port}/client/#{client.peer}")
         end # Thread.start
       end # loop
     else
       loop do
-        client_socket = TCPSocket.new(@host, @port)
-        client_socket.instance_eval { class << self; include ::LogStash::Util::SocketPeer end }
-        @logger.debug("Opened connection", :client => "#{client_socket.peer}")
-        handle_socket(client_socket, output_queue, "tcp://#{client_socket.peer}/server")
+        @client_socket = TCPSocket.new(@host, @port)
+        @client_socket.instance_eval { class << self; include ::LogStash::Util::SocketPeer end }
+        @logger.debug("Opened connection", :client => "#{@client_socket.peer}")
+        handle_socket(@client_socket, output_queue, "tcp://#{@client_socket.peer}/server")
       end # loop
     end
   end # def run
+
+  def teardown
+    @threads.each do |thread|
+      thread.raise(StandardError)
+      thread.join
+    end
+    if server?
+      @server_socket.close  unless @server_socket.closed?
+    else
+      @client_socket.close  unless @client_socket.closed?
+    end
+  end
 end # class LogStash::Inputs::Tcp
