@@ -14,13 +14,12 @@ class LogStash::Event
   def initialize(data=nil)
     @cancelled = false
 
-    @data = {
-      "@source" => "unknown",
-      "@tags" => [],
-      "@fields" => {},
-    }
+    @data = {}
     @data.merge!(data) unless data.nil?
     @data["@timestamp"] ||= LogStash::Time.now
+    @data["@source"] ||= "unknown"
+    @data["@tags"] ||= []
+    @data["@fields"] ||= {}
   end # def initialize
 
   if RUBY_ENGINE == "jruby"
