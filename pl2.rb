@@ -2,6 +2,7 @@ $: << "lib"
 require "logstash/config/file"
 require "thread"
 require "cabin"
+require "stud/trap"
 
 # A module for registering signal handlers that don't obliterate the others.
 module Flagman
@@ -23,13 +24,17 @@ end
 class Pipeline
   class ShutdownSignal < Exception; end
 
-  def initialize(configstr)
+  def initialize(path)
     @logger = Cabin::Channel.get
     @logger.subscribe(STDOUT)
-    @logger.level = :info
+    @logger.level = :debug
 
+    @path = path
+  end # def initialize
+
+  def load_config
     # hacks for now to parse a config string
-    config = LogStash::Config::File.new(nil, configstr)
+    config = LogStash::Config::File.new(@path, nil)
     @inputs, @filters, @outputs = config.apply
 
     @inputs.collect(&:register)
@@ -45,39 +50,50 @@ class Pipeline
       @filter_to_output = @input_to_filter
     end
 
-    Flagman.trap("INT") { interrupt }
+    Stud.trap("INT") { Thread.new { interrupt } }
+    Stud.trap("HUP") { Thread.new { @reload = true; shutdown } }
+    Stud.trap("QUIT") { @reload = true; shutdown }
   end # def initialize
 
   def run
-    input_count = @inputs.count
-    input_completion_queue = Queue.new
+    while true
+      @reload = false
+      load_config
+      
+      input_count = @inputs.count
+      input_completion_queue = Queue.new
 
-    @input_threads = @inputs.collect do |input|
-      # one thread per input
-      Thread.new(input, input_completion_queue) do |input, input_completion_queue|
-        Thread.current[:name] = input.class
-        inputworker(input)
-        input_completion_queue << true
+      @input_threads = @inputs.collect do |input|
+        # one thread per input
+        Thread.new(input, input_completion_queue) do |input, input_completion_queue|
+          Thread.current[:name] = input.class
+          inputworker(input)
+          input_completion_queue << true
+        end
       end
-    end
 
-    if @filters.any?
-      # one filterworker thread, for now
-      @filter_thread = Thread.new(@filters, @input_to_filter, @filter_to_output) do |filters, input_queue, output_queue|
-        Thread.current[:name] = "filter"
-        filterworker(filters, input_queue, output_queue)
+      if @filters.any?
+        # one filterworker thread, for now
+        @filter_thread = Thread.new(@filters, @input_to_filter, @filter_to_output) do |filters, input_queue, output_queue|
+          Thread.current[:name] = "filter"
+          filterworker(filters, input_queue, output_queue)
+        end
       end
-    end
 
-    # one outputworker thread
-    @output_thread = Thread.new(@outputs, @filter_to_output) do |outputs, queue|
-      Thread.current[:name] = "output"
-      outputworker(outputs, queue)
-    end
+      # one outputworker thread
+      @output_thread = Thread.new(@outputs, @filter_to_output) do |outputs, queue|
+        Thread.current[:name] = "output"
+        outputworker(outputs, queue)
+      end
 
-    # Wait for each inputs to finish, then shutdown.
-    input_count.times { input_completion_queue.pop }
-    shutdown
+      # Wait for each inputs to finish, then shutdown.
+      input_count.times { 
+        puts "pop"
+        input_completion_queue.pop }
+      shutdown
+
+      break if !@reload
+    end # while true
   end # def run
 
   def shutdown
@@ -145,6 +161,8 @@ class Pipeline
       
       retry
     end
+  ensure
+    plugin.teardown
   end # def 
 
   def filterworker(filters, input_queue, output_queue)
@@ -213,5 +231,6 @@ end # class Pipeline
 
 start = Time.now
 Thread.current[:name] = "main"
-Pipeline.new(ARGV[0]).run
+pipeline = Pipeline.new(ARGV[0])
+pipeline.run
 puts "duration: #{Time.now - start}"
