@@ -121,7 +121,7 @@ class LogStash::Inputs::File < LogStash::Inputs::Base
     @tail = FileWatch::Tail.new(@tail_config)
     @tail.logger = @logger
     @path.each { |path| @tail.tail(path) }
-    hostname = %[ hostname -f ].strip
+    hostname = %x[hostname -f].strip
 
     @tail.subscribe do |path, line|
       source = Addressable::URI.new(:scheme => "file", :host => hostname, :path => path).to_s
