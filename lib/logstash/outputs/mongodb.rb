@@ -28,7 +28,14 @@ class LogStash::Outputs::Mongodb < LogStash::Outputs::Base
   public
   def register
     require "mongo"
-    conn = Mongo::MongoClient.from_uri(@uri)
+    uriParsed=Mongo::URIParser.new(@uri)
+    conn = uriParsed.connection({})
+    if uriParsed.auths.length > 0
+      uriParsed.auths.each do |auth|
+        conn.add_auth(auth['db_name'], auth['username'], auth['password'])
+      end
+      conn.apply_saved_authentication()
+    end
     @db = conn.db(@database)
   end # def register
 
