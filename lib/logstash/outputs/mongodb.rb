@@ -25,6 +25,11 @@ class LogStash::Outputs::Mongodb < LogStash::Outputs::Base
   # Number of seconds to wait after failure before retrying
   config :waitTime, :validate => :number, :default => 3, :required => false
 
+  # If true, a _id field will be added to the document before insertion.
+  # The _id field will use the timestamp of the event and overwrite an existing
+  # _id field in the event.
+  config :generateId, :validate => :boolean, :default => false
+
   public
   def register
     require "mongo"
@@ -48,15 +53,26 @@ class LogStash::Outputs::Mongodb < LogStash::Outputs::Base
         # the mongodb driver wants time values as a ruby Time object.
         # set the @timestamp value of the document to a ruby Time object, then.
         document = event.to_hash.merge("@timestamp" => event.ruby_timestamp)
-        @db.collection(event.sprintf(@collection)).insert(document)
       else
-        @db.collection(event.sprintf(@collection)).insert(event.to_hash)
+        document = event.to_hash
       end
+      if @generateId
+        document['_id'] = BSON::ObjectId.new(nil, event.ruby_timestamp)
+      end
+      @db.collection(event.sprintf(@collection)).insert(document)
     rescue => e
       @logger.warn("Failed to send event to MongoDB", :event => event,
                    :exception => e, :backtrace => e.backtrace)
-      sleep @waitTime
-      retry
+      if e.error_code == 11000
+          # On a duplicate key error, skip the insert.
+          # We could check if the duplicate key err is the _id key
+          # and generate a new primary key.
+          # If the duplicate key error is on another field, we have no way
+          # to fix the issue.
+      else
+        sleep @waitTime
+        retry
+      end
     end
   end # def receive
 end # class LogStash::Outputs::Mongodb
