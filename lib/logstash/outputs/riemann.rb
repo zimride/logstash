@@ -17,7 +17,7 @@ require "logstash/namespace"
 #
 class LogStash::Outputs::Riemann < LogStash::Outputs::Base
   config_name "riemann"
-  plugin_status "experimental"
+  milestone 1
 
   # The address of the Riemann server.
   config :host, :validate => :string, :default => "localhost"
@@ -37,7 +37,7 @@ class LogStash::Outputs::Riemann < LogStash::Outputs::Base
   # The name of the sender.
   # This sets the `host` value
   # in the Riemann event
-  config :sender, :validate => :string, :default => "%{@source_host}"
+  config :sender, :validate => :string, :default => "%{host}"
 
   # A Hash to set Riemann event fields 
   # (<http://aphyr.github.com/riemann/concepts.html>).

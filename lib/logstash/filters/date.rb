@@ -1,6 +1,5 @@
 require "logstash/filters/base"
 require "logstash/namespace"
-require "logstash/time_addon"
 
 # The date filter is used for parsing dates from fields and using that
 # date or timestamp as the timestamp for the event.
@@ -20,10 +19,22 @@ require "logstash/time_addon"
 # set in the event. For example, with file input, the timestamp is set to the
 # time of each read.
 class LogStash::Filters::Date < LogStash::Filters::Base
-  JavaException = java.lang.Exception if RUBY_ENGINE == "jruby"
+  if RUBY_ENGINE == "jruby"
+    JavaException = java.lang.Exception
+    UTC = org.joda.time.DateTimeZone.forID("UTC")
+  end
 
   config_name "date"
-  plugin_status "stable"
+  milestone 3
+
+  # specify a timezone canonical ID to be used for date parsing.
+  # The valid ID are listed on http://joda-time.sourceforge.net/timezones.html
+  # Useful in case the timezone cannot be extracted from the value,
+  # and is not the platform default
+  # If this is not specified the platform default will be used.
+  # Canonical ID is good as it takes care of daylight saving time for you
+  # For example, America/Los_Angeles or Europe/France are valid IDs
+  config :timezone, :validate => :string
 
   # specify a locale to be used for date parsing. If this is not specified the
   # platform default will be used
@@ -32,11 +43,6 @@ class LogStash::Filters::Date < LogStash::Filters::Base
   # weekday names
   #
   config :locale, :validate => :string
-
-  # This is short-hand for `match => [ "fieldname", "dateformat" ]`
-  #
-  # It is deprecated. Please use 'match' instead.
-  config /[A-Za-z0-9_-]+/, :validate => :array, :deprecated => true
 
   # The date formats allowed are anything allowed by Joda-Time (java time
   # library): You can see the docs for this format here:
@@ -117,57 +123,53 @@ class LogStash::Filters::Date < LogStash::Filters::Base
     require "java"
     # TODO(sissel): Need a way of capturing regexp configs better.
     locale = parseLocale(@config["locale"][0]) if @config["locale"] != nil and @config["locale"][0] != nil
-    missing = []
-    @config.each do |field, value|
-      next if (RESERVED + ["locale", "match"]).include?(field)
-
-      recommended_setting = value.map { |v| "\"#{v}\"" }.join(", ")
-      @logger.warn("#{self.class.config_name}: You used a deprecated setting '#{field} => #{value}'. You should use 'match => [ \"#{field}\", #{recommended_setting} ]'")
-      # values here are an array of format strings for the given field.
-      setupMatcher(field, locale, missing, value) # value.each
-    end # @config.each
-    setupMatcher(@config["match"].shift, locale, missing, @config["match"] )
+    setupMatcher(@config["match"].shift, locale, @config["match"] )
   end
 
-  def setupMatcher(field, locale, missing, value)
+  def setupMatcher(field, locale, value)
     value.each do |format|
       case format
         when "ISO8601"
-          joda_parser = org.joda.time.format.ISODateTimeFormat.dateTimeParser.withOffsetParsed
+          joda_parser = org.joda.time.format.ISODateTimeFormat.dateTimeParser
+          if @timezone
+            joda_parser = joda_parser.withZone(org.joda.time.DateTimeZone.forID(@timezone))
+          else
+            joda_parser = joda_parser.withOffsetParsed
+          end
           parser = lambda { |date| joda_parser.parseDateTime(date) }
         when "UNIX" # unix epoch
-          parser = lambda { |date| org.joda.time.Instant.new((date.to_f * 1000).to_i).toDateTime }
+          joda_instant = org.joda.time.Instant.java_class.constructor(Java::long).method(:new_instance)
+          parser = lambda { |date| joda_instant.call((date.to_f * 1000).to_i).to_java.toDateTime }
         when "UNIX_MS" # unix epoch in ms
-          parser = lambda { |date| org.joda.time.Instant.new(date.to_i).toDateTime }
+          joda_instant = org.joda.time.Instant.java_class.constructor(Java::long).method(:new_instance)
+          parser = lambda do |date| 
+            return joda_instant.call(date.to_i).to_java.toDateTime
+          end
         when "TAI64N" # TAI64 with nanoseconds, -10000 accounts for leap seconds
+          joda_instant = org.joda.time.Instant.java_class.constructor(Java::long).method(:new_instance)
           parser = lambda do |date| 
             # Skip leading "@" if it is present (common in tai64n times)
             date = date[1..-1] if date[0, 1] == "@"
-
-            org.joda.time.Instant.new((date[1..15].hex * 1000 - 10000)+(date[16..23].hex/1000000)).toDateTime 
+            return joda_instant.call((date[1..15].hex * 1000 - 10000)+(date[16..23].hex/1000000)).to_java.toDateTime 
           end
         else
-          joda_parser = org.joda.time.format.DateTimeFormat.forPattern(format).withOffsetParsed
+          joda_parser = org.joda.time.format.DateTimeFormat.forPattern(format).withDefaultYear(Time.new.year)
+          if @timezone
+            joda_parser = joda_parser.withZone(org.joda.time.DateTimeZone.forID(@timezone))
+          else
+            joda_parser = joda_parser.withOffsetParsed
+          end
           if (locale != nil)
             joda_parser = joda_parser.withLocale(locale)
           end
           parser = lambda { |date| joda_parser.parseDateTime(date) }
-
-          # Joda's time parser doesn't assume 'current time' for unparsed values.
-          # That is, if you parse with format "mmm dd HH:MM:SS" (no year) then
-          # the year is assumed to be unix epoch year, 1970, rather than
-          # current year. This sucks, so try and keep track of fields that
-          # are not specified so we can inject them later. (jordansissel)
-          # LOGSTASH-34
-          missing = DATEPATTERNS.reject { |p| format.include?(p) }
       end
 
       @logger.debug("Adding type with date config", :type => @type,
                     :field => field, :format => format)
       @parsers[field] << {
-          :parser => parser,
-          :missing => missing,
-          :format => format
+        :parser => parser,
+        :format => format
       }
     end
   end
@@ -178,8 +180,6 @@ class LogStash::Filters::Date < LogStash::Filters::Base
   def filter(event)
     @logger.debug? && @logger.debug("Date filter: received event", :type => event.type)
     return unless filter?(event)
-    now = Time.now
-
     @parsers.each do |field, fieldparsers|
       @logger.debug? && @logger.debug("Date filter looking for field",
                                       :type => event.type, :field => field)
@@ -191,14 +191,10 @@ class LogStash::Filters::Date < LogStash::Filters::Base
         next if value.nil?
         begin
           time = nil
-          missing = []
           success = false
           last_exception = RuntimeError.new "Unknown"
           fieldparsers.each do |parserconfig|
             parser = parserconfig[:parser]
-            missing = parserconfig[:missing]
-            #@logger.info :Missing => missing
-            #p :parser => parser
             begin
               time = parser.call(value)
               success = true
@@ -208,34 +204,16 @@ class LogStash::Filters::Date < LogStash::Filters::Base
             end
           end # fieldparsers.each
 
-          if !success
-            raise last_exception
-          end
+          raise last_exception unless success
 
-          # Perform workaround for LOGSTASH-34
-          if !missing.empty?
-            # Inject any time values missing from the time parser format
-            missing.each do |t|
-              case t
-              when "y"
-                time = time.withYear(now.year)
-              when "S"
-                # TODO(sissel): Old behavior was to default to fractional sec == 0
-                #time.setMillisOfSecond(now.usec / 1000)
-                time = time.withMillisOfSecond(0)
-              #when "Z"
-                # Ruby 'time.gmt_offset' is in seconds.
-                # timezone is missing, so let's add in our localtime offset.
-                #time = time.plusSeconds(now.gmt_offset)
-                # TODO(sissel): not clear if we need to do this...
-              end # case t
-            end
-          end
-          #@logger.info :JodaTime => time.to_s
-          time = time.withZone(org.joda.time.DateTimeZone.forID("UTC"))
-          event.timestamp = time.to_s 
-          #event.timestamp = LogStash::Time.to_iso8601(time)
-          @logger.debug? && @logger.debug("Date parsing done", :value => value, :timestamp => event.timestamp)
+          time = time.withZone(UTC)
+          # Convert joda DateTime to a ruby Time
+          event["@timestamp"] = Time.utc(
+            time.getYear, time.getMonthOfYear, time.getDayOfMonth,
+            time.getHourOfDay, time.getMinuteOfHour, time.getSecondOfMinute,
+            time.getMillisOfSecond * 1000
+          )
+          @logger.debug? && @logger.debug("Date parsing done", :value => value, :timestamp => event["@timestamp"])
         rescue StandardError, JavaException => e
           @logger.warn("Failed parsing date from field", :field => field,
                        :value => value, :exception => e)

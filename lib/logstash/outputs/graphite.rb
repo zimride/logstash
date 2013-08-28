@@ -10,7 +10,9 @@ require "socket"
 # I can capture the metric values from the logs and emit them to graphite.
 class LogStash::Outputs::Graphite < LogStash::Outputs::Base
   config_name "graphite"
-  plugin_status "beta"
+  milestone 2
+
+  EXCLUDE_ALWAYS = [ "@timestamp", "@version" ]
 
   DEFAULT_METRICS_FORMAT = "*"
   METRIC_PLACEHOLDER = "*"
@@ -27,11 +29,11 @@ class LogStash::Outputs::Graphite < LogStash::Outputs::Base
   # Should metrics be resend on failure?
   config :resend_on_failure, :validate => :boolean, :default => false
 
-  # The metric(s) to use. This supports dynamic strings like %{@source_host}
+  # The metric(s) to use. This supports dynamic strings like %{source}
   # for metric names and also for values. This is a hash field with key 
   # of the metric name, value of the metric value. Example:
   #
-  #     [ "%{@source_host}/uptime", "%{uptime_1m}" ]
+  #     [ "%{source}/uptime", "%{uptime_1m}" ]
   #
   # The value will be coerced to a floating point value. Values which cannot be
   # coerced will zero (0)
@@ -100,8 +102,9 @@ class LogStash::Outputs::Graphite < LogStash::Outputs::Base
     timestamp = event.sprintf("%{+%s}")
 
     if @fields_are_metrics
-      @logger.debug("got metrics event", :metrics => event.fields)
-      event.fields.each do |metric,value|
+      @logger.debug("got metrics event", :metrics => event.to_hash)
+      event.to_hash.each do |metric,value|
+        next if EXCLUDE_ALWAYS.include?(metric)
         next unless @include_metrics.empty? || @include_metrics.any? { |regexp| metric.match(regexp) }
         next if @exclude_metrics.any? {|regexp| metric.match(regexp)}
         messages << "#{construct_metric_name(metric)} #{event.sprintf(value.to_s).to_f} #{timestamp}"

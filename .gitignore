@@ -1,7 +1,11 @@
 .*.swp
 *.gem
+pkg/*.deb
+pkg/*.rpm
 *.class
+.rbx
 Gemfile.lock
+.rbx
 *.tar.gz
 *.jar
 .bundle
@@ -13,3 +17,5 @@ vendor
 data
 .buildpath
 .project
+.DS_Store
+*.pyc

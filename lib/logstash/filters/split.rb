@@ -1,6 +1,5 @@
 require "logstash/filters/base"
 require "logstash/namespace"
-require "logstash/time_addon"
 
 # The split filter is for splitting multiline messages into separate events.
 #
@@ -13,14 +12,14 @@ require "logstash/time_addon"
 class LogStash::Filters::Split < LogStash::Filters::Base
 
   config_name "split"
-  plugin_status "beta"
+  milestone 2
 
   # The string to split on. This is usually a line terminator, but can be any
   # string.
   config :terminator, :validate => :string, :default => "\n"
 
   # The field which value is split by the terminator
-  config :field, :validate => :string, :default => "@message"
+  config :field, :validate => :string, :default => "message"
 
   public
   def register

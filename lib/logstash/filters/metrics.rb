@@ -10,7 +10,7 @@ require "logstash/namespace"
 #     filter {
 #       metrics {
 #         meter => [ "http.%{response}" ]
-#         add_tag => metric
+#         add_tag => "metric"
 #       }
 #     }
 #
@@ -93,7 +93,7 @@ require "logstash/namespace"
 #     }
 class LogStash::Filters::Metrics < LogStash::Filters::Base
   config_name "metrics"
-  plugin_status "experimental"
+  milestone 1
 
   # syntax: `meter => [ "name of metric", "name of metric" ]`
   config :meter, :validate => :array, :default => []
@@ -128,7 +128,8 @@ class LogStash::Filters::Metrics < LogStash::Filters::Base
   def filter(event)
     return unless filter?(event)
 
-    if @ignore_older_than > 0 && Time.now - event.ruby_timestamp > @ignore_older_than
+    # TODO(piavlo): This should probably be moved to base filter class.
+    if @ignore_older_than > 0 && Time.now - event["@timestamp"] > @ignore_older_than
       @logger.debug("Skipping metriks for old event", :event => event)
       return
     end

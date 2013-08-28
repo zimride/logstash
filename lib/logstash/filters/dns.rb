@@ -15,7 +15,7 @@ require "logstash/namespace"
 #     filter {
 #       dns {
 #         type => 'type'
-#         reverse => [ "@source_host", "field_with_address" ]
+#         reverse => [ "source_host", "field_with_address" ]
 #         resolve => [ "field_with_fqdn" ]
 #         action => "replace"
 #       }
@@ -30,7 +30,7 @@ require "logstash/namespace"
 class LogStash::Filters::DNS < LogStash::Filters::Base
 
   config_name "dns"
-  plugin_status "beta"
+  milestone 2
 
   # Reverse resolve one or more fields.
   config :reverse, :validate => :array
@@ -42,13 +42,25 @@ class LogStash::Filters::DNS < LogStash::Filters::Base
   # specified under "reverse" and "resolve."
   config :action, :validate => [ "append", "replace" ], :default => "append"
 
+  # Use custom nameserver.
+  config :nameserver, :validate => :string
+
   # TODO(sissel): make 'action' required? This was always the intent, but it
   # due to a typo it was never enforced. Thus the default behavior in past
   # versions was 'append' by accident.
 
+  # resolv calls will be wrapped in a timeout instance
+  config :timeout, :validate => :int, :default => 2
+
   public
   def register
     require "resolv"
+    require "timeout"
+    if @nameserver.nil?
+      @resolv = Resolv.new
+    else
+      @resolv = Resolv.new(resolvers=[::Resolv::Hosts.new, ::Resolv::DNS.new(:nameserver => [@nameserver], :search => [], :ndots => 1)])
+    end
 
     @ip_validator = Resolv::AddressRegex
   end # def register
@@ -57,8 +69,27 @@ class LogStash::Filters::DNS < LogStash::Filters::Base
   def filter(event)
     return unless filter?(event)
 
-    resolve(event) if @resolve
-    reverse(event) if @reverse
+    if @resolve
+      begin
+        status = Timeout::timeout(@timeout) { 
+          resolve(event)
+        }
+      rescue Timeout::Error
+        @logger.debug("DNS: resolve action timed out")
+        return
+      end
+    end
+
+    if @reverse
+      begin
+        status = Timeout::timeout(@timeout) { 
+          reverse(event)
+        }
+      rescue Timeout::Error
+        @logger.debug("DNS: reverse action timed out")
+        return
+      end
+    end
 
     filter_matched(event)
   end
@@ -78,7 +109,7 @@ class LogStash::Filters::DNS < LogStash::Filters::Base
       end
 
       begin
-        address = Resolv.getaddress(raw)
+        address = @resolv.getaddress(raw)
       rescue Resolv::ResolvError
         @logger.debug("DNS: couldn't resolve the hostname.",
                       :field => field, :value => raw)
@@ -136,7 +167,7 @@ class LogStash::Filters::DNS < LogStash::Filters::Base
         return
       end
       begin
-        hostname = Resolv.getname(raw)
+        hostname = @resolv.getname(raw)
       rescue Resolv::ResolvError
         @logger.debug("DNS: couldn't resolve the address.",
                       :field => field, :value => raw)

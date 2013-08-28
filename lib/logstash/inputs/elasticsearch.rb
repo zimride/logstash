@@ -20,18 +20,20 @@ require "logstash/util/socket_peer"
 # * TODO(sissel): Option to keep the index, type, and doc id so we can do reindexing?
 class LogStash::Inputs::Elasticsearch < LogStash::Inputs::Base
   config_name "elasticsearch"
-  plugin_status "experimental"
+  milestone 1
 
-  # When mode is `server`, the address to listen on.
-  # When mode is `client`, the address to connect to.
-  config :host, :validate => :string, :default => "0.0.0.0"
+  default :codec, "json"
 
-  # When mode is `server`, the port to listen on.
-  # When mode is `client`, the port to connect to.
+  # The address of your elasticsearch server
+  config :host, :validate => :string, :required => true
+
+  # The http port of your elasticsearch server's REST interface
   config :port, :validate => :number, :default => 9200
 
-  config :index, :validate => :string, :default => "*"
+  # The index to search
+  config :index, :validate => :string, :default => "logstash-*"
 
+  # The query to use
   config :query, :validate => :string, :default => "*"
 
   public
@@ -44,7 +46,6 @@ class LogStash::Inputs::Elasticsearch < LogStash::Inputs::Base
       "size" => "1000",
     }
     @url = "http://#{@host}:#{@port}/#{@index}/_search?#{encode(params)}"
-    @format ||= "json_event"
   end # def register
 
   private
@@ -72,8 +73,12 @@ class LogStash::Inputs::Elasticsearch < LogStash::Inputs::Base
       break if hits.empty?
 
       result["hits"]["hits"].each do |hit|
-        event = LogStash::Event.new(hit["_source"])
-        output_queue << event
+        event = hit["_source"]
+
+        # Hack to make codecs work
+        @codec.decode(event.to_json) do |event|
+          output_queue << event
+        end
       end
 
       # Fetch until we get no hits
@@ -89,5 +94,7 @@ class LogStash::Inputs::Elasticsearch < LogStash::Inputs::Base
         break
       end
     end
+  rescue LogStash::ShutdownSignal
+    # Do nothing, let us quit.
   end # def run
 end # class LogStash::Inputs::Elasticsearch

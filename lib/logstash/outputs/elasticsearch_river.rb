@@ -17,7 +17,7 @@ require "net/http"
 class LogStash::Outputs::ElasticSearchRiver < LogStash::Outputs::Base
 
   config_name "elasticsearch_river"
-  plugin_status "beta"
+  milestone 2
 
   config :debug, :validate => :boolean, :default => false
 
@@ -28,7 +28,7 @@ class LogStash::Outputs::ElasticSearchRiver < LogStash::Outputs::Base
 
   # The index type to write events to. Generally you should try to write only
   # similar events to the same 'type'. String expansion '%{foo}' works here.
-  config :index_type, :validate => :string, :default => "%{@type}"
+  config :index_type, :validate => :string, :default => "%{type}"
 
   # The name/address of an ElasticSearch host to use for river creation
   config :es_host, :validate => :string, :required => true
@@ -85,13 +85,6 @@ class LogStash::Outputs::ElasticSearchRiver < LogStash::Outputs::Base
 
   public
   def register
-
-    if @name
-      if @queue
-        @logger.error("'name' and 'queue' are the same setting, but 'name' is deprecated. Please use only 'queue'")
-      end
-      @queue = @name
-    end
 
     # TODO(sissel): find a better way of declaring where the elasticsearch
     # libraries are

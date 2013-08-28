@@ -5,7 +5,7 @@ require "socket" # for Socket.gethostname
 # Read from varnish cache's shared memory log
 class LogStash::Inputs::Varnishlog < LogStash::Inputs::Threadable
   config_name "varnishlog"
-  plugin_status "experimental"
+  milestone 1
 
   public
   def register
@@ -26,7 +26,7 @@ class LogStash::Inputs::Varnishlog < LogStash::Inputs::Threadable
   def cb(priv, tag, fd, len, spec, ptr, bitmap)
     begin
       str = ptr.read_string(len)
-      event = to_event(str, @source)
+      event = LogStash::Event.new("message" => str, "source" => @source)
       event["varnish_tag"] = tag
       event["varnish_fd"] = fd
       event["varnish_spec"] = spec

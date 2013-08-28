@@ -18,7 +18,9 @@ class LogStash::Inputs::Relp < LogStash::Inputs::Base
   class Interrupted < StandardError; end
 
   config_name "relp"
-  plugin_status "experimental"
+  milestone 1
+
+  default :codec, "plain"
 
   # The address to listen on.
   config :host, :validate => :string, :default => "0.0.0.0"
@@ -40,8 +42,11 @@ class LogStash::Inputs::Relp < LogStash::Inputs::Base
   def relp_stream(relpserver,socket,output_queue,event_source)
     loop do
       frame = relpserver.syslog_read(socket)
-      event = self.to_event(frame['message'],event_source)
-      output_queue << event
+      @codec.decode(frame["message"]) do |event|
+        event["source"] = event_source
+        output_queue << event
+      end
+
       #To get this far, the message must have made it into the queue for 
       #filtering. I don't think it's possible to wait for output before ack
       #without fundamentally breaking the plugin architecture

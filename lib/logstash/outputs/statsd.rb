@@ -25,7 +25,7 @@ class LogStash::Outputs::Statsd < LogStash::Outputs::Base
   ## Regex stolen from statsd code
   RESERVED_CHARACTERS_REGEX = /[\:\|\@]/
   config_name "statsd"
-  plugin_status "beta"
+  milestone 2
 
   # The address of the Statsd server.
   config :host, :validate => :string, :default => "localhost"
@@ -38,7 +38,7 @@ class LogStash::Outputs::Statsd < LogStash::Outputs::Base
 
   # The name of the sender.
   # Dots will be replaced with underscores
-  config :sender, :validate => :string, :default => "%{@source_host}"
+  config :sender, :validate => :string, :default => "%{source}"
 
   # An increment metric. metric names as array.
   config :increment, :validate => :array, :default => []
@@ -52,6 +52,12 @@ class LogStash::Outputs::Statsd < LogStash::Outputs::Base
   # A count metric. metric_name => count as hash
   config :count, :validate => :hash, :default => {}
 
+  # A set metric. metric_name => string to append as hash
+  config :set, :validate => :hash, :default => {}
+
+  # A gauge metric. metric_name => gauge as hash
+  config :gauge, :validate => :hash, :default => {}
+  
   # The sample rate for the metric
   config :sample_rate, :validate => :number, :default => 1
 
@@ -72,10 +78,10 @@ class LogStash::Outputs::Statsd < LogStash::Outputs::Base
     return unless output?(event)
 
     @client.namespace = event.sprintf(@namespace) if not @namespace.empty?
-    logger.debug("Original sender: #{@sender}")
+    @logger.debug? and @logger.debug("Original sender: #{@sender}")
     sender = event.sprintf(@sender)
-    logger.debug("Munged sender: #{sender}")
-    logger.debug("Event: #{event}")
+    @logger.debug? and @logger.debug("Munged sender: #{sender}")
+    @logger.debug? and @logger.debug("Event: #{event}")
     @increment.each do |metric|
       @client.increment(build_stat(event.sprintf(metric), sender), @sample_rate)
     end
@@ -90,12 +96,20 @@ class LogStash::Outputs::Statsd < LogStash::Outputs::Base
       @client.timing(build_stat(event.sprintf(metric), sender),
                      event.sprintf(val).to_f, @sample_rate)
     end
+    @set.each do |metric, val|
+      @client.set(build_stat(event.sprintf(metric), sender),
+                    event.sprintf(val), @sample_rate)
+    end
+    @gauge.each do |metric, val|
+      @client.gauge(build_stat(event.sprintf(metric), sender),
+                    event.sprintf(val).to_f, @sample_rate)
+    end
   end # def receive
 
   def build_stat(metric, sender=@sender)
     sender = sender.gsub('::','.').gsub(RESERVED_CHARACTERS_REGEX, '_').gsub(".", "_")
     metric = metric.gsub('::','.').gsub(RESERVED_CHARACTERS_REGEX, '_')
-    @logger.debug("Formatted value", :sender => sender, :metric => metric)
+    @logger.debug? and @logger.debug("Formatted value", :sender => sender, :metric => metric)
     return "#{sender}.#{metric}"
   end
 end # class LogStash::Outputs::Statsd

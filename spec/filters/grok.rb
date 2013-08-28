@@ -10,14 +10,15 @@ describe LogStash::Filters::Grok do
     config <<-CONFIG
       filter {
         grok {
-          pattern => "%{SYSLOGLINE}"
+          match => [ "message", "%{SYSLOGLINE}" ]
           singles => true
+          overwrite => [ "message" ]
         }
       }
     CONFIG
 
     sample "Mar 16 00:01:25 evita postfix/smtpd[1713]: connect from camomile.cloud9.net[168.100.1.3]" do
-      reject { subject["@tags"] }.include?("_grokparsefailure")
+      insist { subject["tags"] }.nil?
       insist { subject["logsource"] } == "evita"
       insist { subject["timestamp"] } == "Mar 16 00:01:25"
       insist { subject["message"] } == "connect from camomile.cloud9.net[168.100.1.3]"
@@ -32,15 +33,15 @@ describe LogStash::Filters::Grok do
     config <<-CONFIG
       filter {
         grok {
-          pattern => "%{SYSLOG5424LINE}"
+          match => [ "message",  "%{SYSLOG5424LINE}" ]
           singles => true
         }
       }
     CONFIG
 
     sample "<191>1 2009-06-30T18:30:00+02:00 paxton.local grokdebug 4123 - [id1 foo=\"bar\"][id2 baz=\"something\"] Hello, syslog." do
-      reject { subject["@tags"] }.include?("_grokparsefailure")
-      insist { subject["syslog5424_pri"] } == "<191>"
+      insist { subject["tags"] }.nil?
+      insist { subject["syslog5424_pri"] } == "191"
       insist { subject["syslog5424_ver"] } == "1"
       insist { subject["syslog5424_ts"] } == "2009-06-30T18:30:00+02:00"
       insist { subject["syslog5424_host"] } == "paxton.local"
@@ -50,19 +51,58 @@ describe LogStash::Filters::Grok do
       insist { subject["syslog5424_sd"] } == "[id1 foo=\"bar\"][id2 baz=\"something\"]"
       insist { subject["syslog5424_msg"] } == "Hello, syslog."
     end
+
+    sample "<191>1 2009-06-30T18:30:00+02:00 paxton.local grokdebug - - [id1 foo=\"bar\"] No process ID." do
+      insist { subject["tags"] }.nil?
+      insist { subject["syslog5424_pri"] } == "191"
+      insist { subject["syslog5424_ver"] } == "1"
+      insist { subject["syslog5424_ts"] } == "2009-06-30T18:30:00+02:00"
+      insist { subject["syslog5424_host"] } == "paxton.local"
+      insist { subject["syslog5424_app"] } == "grokdebug"
+      insist { subject["syslog5424_proc"] } == nil
+      insist { subject["syslog5424_msgid"] } == nil
+      insist { subject["syslog5424_sd"] } == "[id1 foo=\"bar\"]"
+      insist { subject["syslog5424_msg"] } == "No process ID."
+    end
+
+    sample "<191>1 2009-06-30T18:30:00+02:00 paxton.local grokdebug 4123 - - No structured data." do
+      insist { subject["tags"] }.nil?
+      insist { subject["syslog5424_pri"] } == "191"
+      insist { subject["syslog5424_ver"] } == "1"
+      insist { subject["syslog5424_ts"] } == "2009-06-30T18:30:00+02:00"
+      insist { subject["syslog5424_host"] } == "paxton.local"
+      insist { subject["syslog5424_app"] } == "grokdebug"
+      insist { subject["syslog5424_proc"] } == "4123"
+      insist { subject["syslog5424_msgid"] } == nil
+      insist { subject["syslog5424_sd"] } == nil
+      insist { subject["syslog5424_msg"] } == "No structured data."
+    end
+
+    sample "<191>1 2009-06-30T18:30:00+02:00 paxton.local grokdebug - - - No PID or SD." do
+      insist { subject["tags"] }.nil?
+      insist { subject["syslog5424_pri"] } == "191"
+      insist { subject["syslog5424_ver"] } == "1"
+      insist { subject["syslog5424_ts"] } == "2009-06-30T18:30:00+02:00"
+      insist { subject["syslog5424_host"] } == "paxton.local"
+      insist { subject["syslog5424_app"] } == "grokdebug"
+      insist { subject["syslog5424_proc"] } == nil
+      insist { subject["syslog5424_msgid"] } == nil
+      insist { subject["syslog5424_sd"] } == nil
+      insist { subject["syslog5424_msg"] } == "No PID or SD."
+    end
   end
 
   describe "parsing an event with multiple messages (array of strings)" do
     config <<-CONFIG
       filter {
         grok {
-          pattern => "(?:hello|world) %{NUMBER}"
+          match => [ "message",  "(?:hello|world) %{NUMBER}" ]
           named_captures_only => false
         }
       }
     CONFIG
 
-    sample({ "@message" => [ "hello 12345", "world 23456" ] }) do
+    sample("message" => [ "hello 12345", "world 23456" ]) do
       insist { subject["NUMBER"] } == [ "12345", "23456" ]
     end
   end
@@ -71,7 +111,7 @@ describe LogStash::Filters::Grok do
     config <<-CONFIG
       filter {
         grok {
-          pattern => "%{NUMBER:foo:int} %{NUMBER:bar:float}"
+          match => [ "message",  "%{NUMBER:foo:int} %{NUMBER:bar:float}" ]
           singles => true
         }
       }
@@ -89,7 +129,7 @@ describe LogStash::Filters::Grok do
     config <<-CONFIG
       filter {
         grok {
-          pattern => "%{FIZZLE=\\d+}"
+          match => [ "message",  "%{FIZZLE=\\d+}" ]
           named_captures_only => false
           singles => true
         }
@@ -101,11 +141,11 @@ describe LogStash::Filters::Grok do
     end
   end
 
-  describe "processing fields other than @message" do
+  describe "processing selected fields" do
     config <<-CONFIG
       filter {
         grok {
-          pattern => "%{WORD:word}"
+          match => [ "message",  "%{WORD:word}" ]
           match => [ "examplefield", "%{NUMBER:num}" ]
           break_on_match => false
           singles => true
@@ -113,7 +153,7 @@ describe LogStash::Filters::Grok do
       }
     CONFIG
 
-    sample({ "@message" => "hello world", "@fields" => { "examplefield" => "12345" } }) do
+    sample("message" => "hello world", "examplefield" => "12345") do
       insist { subject["examplefield"] } == "12345"
       insist { subject["word"] } == "hello"
     end
@@ -123,7 +163,7 @@ describe LogStash::Filters::Grok do
     config <<-CONFIG
       filter {
         grok {
-          pattern => "matchme %{NUMBER:fancy}"
+          match => [ "message",  "matchme %{NUMBER:fancy}" ]
           singles => true
           add_field => [ "new_field", "%{fancy}" ]
         }
@@ -131,12 +171,12 @@ describe LogStash::Filters::Grok do
     CONFIG
 
     sample "matchme 1234" do
-      reject { subject["@tags"] }.include?("_grokparsefailure")
-      insist { subject["new_field"] } == ["1234"]
+      insist { subject["tags"] }.nil?
+      insist { subject["new_field"] } == "1234"
     end
 
     sample "this will not be matched" do
-      insist { subject["@tags"] }.include?("_grokparsefailure")
+      insist { subject["tags"] }.include?("_grokparsefailure")
       reject { subject }.include?("new_field")
     end
   end
@@ -146,13 +186,13 @@ describe LogStash::Filters::Grok do
       config <<-CONFIG
         filter {
           grok {
-            pattern => "1=%{WORD:foo1} *(2=%{WORD:foo2})?"
+            match => [ "message",  "1=%{WORD:foo1} *(2=%{WORD:foo2})?" ]
           }
         }
       CONFIG
 
       sample "1=test" do
-        reject { subject["@tags"] }.include?("_grokparsefailure")
+        insist { subject["tags"] }.nil?
         insist { subject }.include?("foo1")
 
         # Since 'foo2' was not captured, it must not be present in the event.
@@ -164,14 +204,14 @@ describe LogStash::Filters::Grok do
       config <<-CONFIG
         filter {
           grok {
-            pattern => "1=%{WORD:foo1} *(2=%{WORD:foo2})?"
+            match => [ "message",  "1=%{WORD:foo1} *(2=%{WORD:foo2})?" ]
             keep_empty_captures => true
           }
         }
       CONFIG
 
       sample "1=test" do
-        reject { subject["@tags"] }.include?("_grokparsefailure")
+        insist { subject["tags"] }.nil?
         insist { subject }.include?("foo1")
         insist { subject }.include?("foo2")
       end
@@ -182,7 +222,7 @@ describe LogStash::Filters::Grok do
     config <<-CONFIG
       filter {
         grok {
-          pattern => "Hello %{WORD}. %{WORD:foo}"
+          match => [ "message",  "Hello %{WORD}. %{WORD:foo}" ]
           named_captures_only => false
           singles => true
         }
@@ -203,12 +243,12 @@ describe LogStash::Filters::Grok do
         filter {
           grok {
             singles => true
-            pattern => "(?<foo>\w+)"
+            match => [ "message",  "(?<foo>\w+)" ]
           }
         }
       CONFIG
       sample "hello world" do
-        reject { subject.tags }.include?("_grokparsefailure")
+        insist { subject.tags }.nil?
         insist { subject["foo"] } == "hello"
       end
     end
@@ -218,14 +258,14 @@ describe LogStash::Filters::Grok do
         filter {
           grok {
             singles => true
-            pattern => "(?<timestamp>%{DATE_EU} %{TIME})"
+            match => [ "message",  "(?<timestamp>%{DATE_EU} %{TIME})" ]
           }
         }
       CONFIG
 
-      sample "fancy 2012-12-12 12:12:12" do
-        reject { subject.tags }.include?("_grokparsefailure")
-        insist { subject["timestamp"] } == "2012-12-12 12:12:12"
+      sample "fancy 12-12-12 12:12:12" do
+        insist { subject["tags"] }.nil?
+        insist { subject["timestamp"] } == "12-12-12 12:12:12"
       end
     end
   end
@@ -240,7 +280,7 @@ describe LogStash::Filters::Grok do
       }
     CONFIG
 
-    sample({ "@fields" => { "status" => 403 } }) do
+    sample("status" => 403) do
       reject { subject.tags }.include?("_grokparsefailure")
       insist { subject.tags }.include?("four_oh_three")
     end
@@ -256,9 +296,37 @@ describe LogStash::Filters::Grok do
       }
     CONFIG
 
-    sample({ "@fields" => { "version" => 1.0 } }) do
-      reject { subject.tags }.include?("_grokparsefailure")
+    sample("version" => 1.0) do
+      insist { subject["tags"] }.include?("one_point_oh")
       insist { subject.tags }.include?("one_point_oh")
+    end
+  end
+
+  describe "grok on %{LOGLEVEL}" do
+    config <<-'CONFIG'
+      filter {
+        grok {
+          pattern => "%{LOGLEVEL:level}: error!"
+        }
+      }
+    CONFIG
+
+    log_level_names = %w(
+      trace Trace TRACE
+      debug Debug DEBUG
+      notice Notice Notice
+      info Info INFO
+      warn warning Warn Warning WARN WARNING
+      err error Err Error ERR ERROR
+      crit critical Crit Critical CRIT CRITICAL
+      fatal Fatal FATAL
+      severe Severe SEVERE
+      emerg emergency Emerg Emergency EMERG EMERGENCY
+    )
+    log_level_names.each do |level_name|
+      sample "#{level_name}: error!" do
+        insist { subject['level'] } == level_name
+      end
     end
   end
 
@@ -266,18 +334,18 @@ describe LogStash::Filters::Grok do
     config <<-CONFIG
       filter {
         grok {
-          pattern => "matchme %{NUMBER:fancy}"
+          match => [ "message",  "matchme %{NUMBER:fancy}" ]
           tag_on_failure => false
         }
       }
     CONFIG
 
     sample "matchme 1234" do
-      reject { subject["@tags"] }.include?("_grokparsefailure")
+      insist { subject["tags"] }.nil?
     end
 
     sample "this will not be matched" do
-      reject { subject["@tags"] }.include?("_grokparsefailure")
+      insist { subject["tags"] }.include?("false")
     end
   end
 
@@ -285,14 +353,60 @@ describe LogStash::Filters::Grok do
     config <<-CONFIG
       filter {
         grok {
-          pattern => "%{DATE_EU:stimestamp}"
+          match => [ "message",  "%{DATE_EU:stimestamp}" ]
           singles => true
         }
       }
     CONFIG
 
-    sample "2011/01/01" do
-      insist { subject["stimestamp"] } == "2011/01/01"
+    sample "11/01/01" do
+      insist { subject["stimestamp"] } == "11/01/01"
+    end
+  end
+
+  describe "allow dashes in capture names" do
+    config <<-CONFIG
+      filter {
+        grok {
+          match => [ "message",  "%{WORD:foo-bar}" ]
+          singles => true
+        }
+      }
+    CONFIG
+
+    sample "hello world" do
+      insist { subject["foo-bar"] } == "hello"
+    end
+  end
+
+  describe "performance test", :if => ENV["SPEEDTEST"] do
+    event_count = 100000
+    min_rate = 4000
+
+    max_duration = event_count / min_rate
+    input = "Nov 24 01:29:01 -0800"
+    config <<-CONFIG
+      input {
+        generator {
+          count => #{event_count}
+          message => "Mar 16 00:01:25 evita postfix/smtpd[1713]: connect from camomile.cloud9.net[168.100.1.3]"
+        }
+      }
+      filter {
+        grok {
+          match => [ "message", "%{SYSLOGLINE}" ]
+          singles => true
+          overwrite => [ "message" ]
+        }
+      }
+      output { null { } }
+    CONFIG
+
+    2.times do
+      agent do
+        puts "grok parse rate: #{event_count / @duration}"
+        insist { @duration } < max_duration
+      end
     end
   end
 end

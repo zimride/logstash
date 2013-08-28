@@ -4,7 +4,7 @@ require "logstash/namespace"
 # Set fields from environment variables
 class LogStash::Filters::Environment < LogStash::Filters::Base
   config_name "environment"
-  plugin_status "experimental"
+  milestone 1
 
   # Specify a hash of fields to the environment variable
   # A hash of matches of field => environment variable
@@ -19,7 +19,7 @@ class LogStash::Filters::Environment < LogStash::Filters::Base
   def filter(event)
     return unless filter?(event)
     @add_field_from_env.each do |field, env|
-      event.fields[field] = ENV[env]
+      event[field] = ENV[env]
     end
     filter_matched(event)
   end # def filter

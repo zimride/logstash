@@ -3,13 +3,15 @@ require "logstash/event"
 require "logstash/plugin"
 require "logstash/logging"
 require "logstash/config/mixin"
+require "logstash/codecs/base"
 
 # This is the base class for logstash inputs.
 class LogStash::Inputs::Base < LogStash::Plugin
   include LogStash::Config::Mixin
   config_name "input"
 
-  # Label this input with a type.
+  # Add a 'type' field to all events handled by this input.
+  #
   # Types are used mainly for filter activation.
   #
   # If you create an input with type "foobar", then only filters
@@ -23,13 +25,16 @@ class LogStash::Inputs::Base < LogStash::Plugin
   # a new input will not override the existing type. A type set at 
   # the shipper stays with that event for its life even
   # when sent to another LogStash server.
-  config :type, :validate => :string, :required => true
+  config :type, :validate => :string
 
   # Set this to true to enable debugging on an input.
   config :debug, :validate => :boolean, :default => false
 
   # The format of input data (plain, json, json_event)
-  config :format, :validate => ["plain", "json", "json_event", "msgpack_event"]
+  config :format, :validate => ["plain", "json", "json_event", "msgpack_event"], :deprecated => true
+
+  # The codec used for input data
+  config :codec, :validate => :codec, :default => "plain"
 
   # The character encoding used in this input. Examples include "UTF-8"
   # and "cp1252"
@@ -38,16 +43,16 @@ class LogStash::Inputs::Base < LogStash::Plugin
   # or in another character set other than UTF-8.
   #
   # This only affects "plain" format logs since json is UTF-8 already.
-  config :charset, :validate => ::Encoding.name_list, :default => "UTF-8"
+  config :charset, :validate => ::Encoding.name_list, :deprecated => true
 
   # If format is "json", an event sprintf string to build what
   # the display @message should be given (defaults to the raw JSON).
-  # sprintf format strings look like %{fieldname} or %{@metadata}.
+  # sprintf format strings look like %{fieldname}
   #
   # If format is "json_event", ALL fields except for @type
   # are expected to be present. Not receiving all fields
   # will cause unexpected results.
-  config :message_format, :validate => :string
+  config :message_format, :validate => :string, :deprecated => true
 
   # Add any number of arbitrary tags to your event.
   #
@@ -61,11 +66,21 @@ class LogStash::Inputs::Base < LogStash::Plugin
   attr_accessor :threadable
 
   public
-  def initialize(params)
+  def initialize(params={})
     super
     @threadable = false
     config_init(params)
     @tags ||= []
+
+    if @charset && @codec.class.get_config.include?("charset")
+      # charset is deprecated on inputs, but provide backwards compatibility
+      # by copying the charset setting into the codec.
+
+      @logger.info("Copying input's charset setting into codec", :input => self, :codec => @codec)
+      charset = @charset
+      @codec.instance_eval { @charset = charset }
+    end
+
   end # def initialize
 
   public
@@ -79,96 +94,7 @@ class LogStash::Inputs::Base < LogStash::Plugin
   end # def tag
 
   protected
-  def to_event(raw, source)
-    @format ||= "plain"
-
-    event = LogStash::Event.new
-    event.tags = @tags.clone rescue []
-    event.source = source
-
-    case @format
-    when "plain"
-      raw.force_encoding(@charset)
-      if @charset != "UTF-8"
-        # Convert to UTF-8 if not in that character set.
-        raw = raw.encode("UTF-8", :invalid => :replace, :undef => :replace)
-      end
-      event.message = raw
-    when "json"
-      begin
-        # JSON must be valid UTF-8, and many inputs come from ruby IO
-        # instances, which almost all default to ASCII-8BIT. Force UTF-8
-        fields = JSON.parse(raw.force_encoding("UTF-8"))
-        fields.each { |k, v| event[k] = v }
-        if @message_format
-          event.message = event.sprintf(@message_format)
-        else
-          event.message = raw
-        end
-      rescue => e
-        # Instead of dropping the event, should we treat it as
-        # plain text and try to do the best we can with it?
-        @logger.info? and @logger.info("Trouble parsing json input, falling " \
-                                       "back to plain text", :input => raw,
-                                       :source => source, :exception => e)
-        event.message = raw
-        event.tags << "_jsonparsefailure"
-      end
-    when "json_event"
-      begin
-        # JSON must be valid UTF-8, and many inputs come from ruby IO
-        # instances, which almost all default to ASCII-8BIT. Force UTF-8
-        event = LogStash::Event.from_json(raw.force_encoding("UTF-8"))
-        event.tags += @tags
-        if @message_format
-          event.message ||= event.sprintf(@message_format)
-        end
-      rescue => e
-        # Instead of dropping the event, should we treat it as
-        # plain text and try to do the best we can with it?
-        @logger.info? and @logger.info("Trouble parsing json input, falling " \
-                                       "back to plain text", :input => raw,
-                                       :source => source, :exception => e)
-        event.message = raw
-        event.tags << "_jsonparsefailure"
-      end
-
-      if event.source == "unknown"
-        event.source = source
-      end
-    when "msgpack_event"
-      begin
-        # Msgpack does not care about UTF-8
-        event = LogStash::Event.new(MessagePack.unpack(raw))
-        event.tags += @tags
-        if @message_format
-          event.message ||= event.sprintf(@message_format)
-        end
-      rescue => e
-        ## TODO(sissel): Instead of dropping the event, should we treat it as
-        ## plain text and try to do the best we can with it?
-        @logger.warn("Trouble parsing msgpack input, falling back to plain text",
-                     :input => raw, :source => source, :exception => e)
-        event.message = raw
-        event.tags << "_msgpackparsefailure"
-      end
-
-      if event.source == "unknown"
-        event.source = source
-      end
-    else
-      raise "unknown event format #{@format}, this should never happen"
-    end
-
-    event.type ||= @type
-
-    @add_field.each do |field, value|
-       event[field] ||= []
-       event[field] = [event[field]] if !event[field].is_a?(Array)
-       event[field] << event.sprintf(value)
-    end
-
-    @logger.debug? and @logger.debug("Received new event", :source => source, :event => event)
-    return event
+  def to_event(raw, source) 
+    raise LogStash::ThisMethodWasRemoved("LogStash::Inputs::Base#to_event - you should use codecs now instead of to_event. Not sure what this means? Get help on logstash-users@googlegroups.com!")
   end # def to_event
 end # class LogStash::Inputs::Base

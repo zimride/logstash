@@ -7,7 +7,7 @@ class LogStash::Outputs::Circonus < LogStash::Outputs::Base
   # 
 
   config_name "circonus"
-  plugin_status "experimental"
+  milestone 1
 
   # Your Circonus API Token
   config :api_token, :validate => :string, :required => true
@@ -28,9 +28,9 @@ class LogStash::Outputs::Circonus < LogStash::Outputs::Base
   # All values will be passed through `event.sprintf`
   #
   # Example:
-  #   ["title":"Logstash event", "description":"Logstash event for %{@source_host}"]
+  #   ["title":"Logstash event", "description":"Logstash event for %{host}"]
   # or
-  #   ["title":"Logstash event", "description":"Logstash event for %{@source_host}", "parent_id", "1"]
+  #   ["title":"Logstash event", "description":"Logstash event for %{host}", "parent_id", "1"]
   config :annotation, :validate => :hash, :required => true, :default => {}
 
   public

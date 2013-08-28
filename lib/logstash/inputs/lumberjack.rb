@@ -8,7 +8,9 @@ require "logstash/namespace"
 class LogStash::Inputs::Lumberjack < LogStash::Inputs::Base
 
   config_name "lumberjack"
-  plugin_status "experimental"
+  milestone 1
+
+  default :codec, "plain"
 
   # the address to listen on.
   config :host, :validate => :string, :default => "0.0.0.0"
@@ -40,23 +42,10 @@ class LogStash::Inputs::Lumberjack < LogStash::Inputs::Base
   public
   def run(output_queue)
     @lumberjack.run do |l|
-      file = l.delete("file")
-      if file[0,1] == "/"
-        source = "lumberjack://#{l.delete("host")}#{file}"
-      else
-        source = "lumberjack://#{l.delete("host")}/#{file}"
+      @codec.decode(l.delete("line")) do |event|
+        l.each { |k,v| event[k] = v }
+        output_queue << event
       end
-      event = to_event(l.delete("line"), source)
-
-      # TODO(sissel): We shoudln't use 'fields' here explicitly, but the new
-      # 'event[key]' code seems... slow, so work around it for now.
-      # TODO(sissel): Once Event_v1 is live, we can just merge 'l' directly into it.
-      #l.each do |key, value|
-        #event[key] = value
-      #end
-      event.fields.merge!(l)
-
-      output_queue << event
     end
   end # def run
 end # class LogStash::Inputs::Lumberjack

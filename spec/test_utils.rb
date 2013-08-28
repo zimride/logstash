@@ -1,5 +1,6 @@
 require "insist"
 require "logstash/agent"
+require "logstash/pipeline"
 require "logstash/event"
 require "logstash/logging"
 require "insist"
@@ -24,128 +25,77 @@ end
 module LogStash
   module RSpec
     def config(configstr)
-      @config_str = configstr
+      let(:config) { configstr }
     end # def config
 
-    def config_yaml(configstr)
-      @config_str = configstr
-      @is_yaml = true
-    end
-
     def type(default_type)
-      @default_type = default_type
+      let(:default_type) { default_type }
     end
     
     def tags(*tags)
-      @default_tags = tags
+      let(:default_tags) { tags }
       puts "Setting default tags: #{@default_tags}"
     end
 
-    def sample(event, &block)
-      default_type = @default_type || "default"
-      default_tags = @default_tags || []
-      config = get_config
-      agent = LogStash::Agent.new
-      agent.instance_eval { parse_options(["--quiet"]) }
-      @inputs, @filters, @outputs = agent.instance_eval { parse_config(config) }
-      [@inputs, @filters, @outputs].flatten.each do |plugin|
-        plugin.logger = $logger
-        plugin.logger.level = :error
-        plugin.register
-      end
-
-      multiple_events = event.is_a?(Array)
-
-      filters = @filters
-      name = event.to_s
+    def sample(sample_event, &block)
+      name = sample_event.is_a?(String) ? sample_event : sample_event.to_json
       name = name[0..50] + "..." if name.length > 50
+
       describe "\"#{name}\"" do
-        before :all do
-          # Coerce to an array of LogStash::Event
-          event = [event] unless event.is_a?(Array)
-          event = event.collect do |e| 
-            if e.is_a?(String)
-              LogStash::Event.new("@message" => e, "@type" => default_type,
-                                  "@tags" => default_tags)
-            else
-              LogStash::Event.new(e)
-            end
+        extend LogStash::RSpec
+        let(:pipeline) { LogStash::Pipeline.new(config) }
+        let(:event) do
+          sample_event = [sample_event] unless sample_event.is_a?(Array)
+          next sample_event.collect do |e|
+            e = { "message" => e } if e.is_a?(String)
+            next LogStash::Event.new(e)
           end
-          
-          results = []
-          event.each do |e|
-            filters.each do |filter|
-              next if e.cancelled?
-              filter.filter(e)
-            end
-            results << e unless e.cancelled?
-          end
-
-          # do any flushing.
-          filters.each_with_index do |filter, i|
-            if filter.respond_to?(:flush)
-              # get any event from flushing
-              list = filter.flush
-              if list
-                list.each do |e|
-                  filters[i+1 .. -1].each do |f|
-                    f.filter(e)
-                  end
-                  results << e unless e.cancelled?
-                end
-              end # if list
-            end # filter.respond_to?(:flush)
-          end # filters.each_with_index
-
-          @results = results
-        end # before :all
-
-        if multiple_events
-          subject { @results }
-        else
-          subject { @results.first }
         end
+
+        let(:results) do
+          results = []
+          count = 0
+          pipeline.instance_eval { @filters.each(&:register) }
+          event.each do |e|
+            extra = []
+            pipeline.filter(e) do |new_event|
+              extra << new_event
+            end
+            results << e if !e.cancelled?
+            results += extra.reject(&:cancelled?)
+          end
+
+          # TODO(sissel): pipeline flush needs to be implemented.
+          #results += pipeline.flush
+          next results
+        end
+
+        subject { results.length > 1 ? results: results.first }
+
         it("when processed", &block)
       end
     end # def sample
 
     def input(&block)
-      config = get_config
-      agent = LogStash::Agent.new
-      agent.instance_eval { parse_options(["--quiet"]) }
-      it "looks good" do
-        inputs, filters, outputs = agent.instance_eval { parse_config(config) }
-        block.call(inputs)
+      it "inputs" do
+        pipeline = LogStash::Pipeline.new(config)
+        queue = Queue.new
+        pipeline.instance_eval do 
+          @output_func = lambda { |event| queue << event }
+        end
+        block.call(pipeline, queue)
+        pipeline.shutdown
       end
     end # def input
 
-    def get_config
-      if @is_yaml
-        require "logstash/config/file/yaml"
-        config = LogStash::Config::File::Yaml.new(nil, @config_str)
-      else
-        require "logstash/config/file"
-        config = LogStash::Config::File.new(nil, @config_str)
-      end
-    end # def get_config
-
     def agent(&block)
-      @agent_count ||= 0
-      require "logstash/agent"
+      require "logstash/pipeline"
 
-      # scoping is hard, let's go shopping!
-      config_str = @config_str
-      describe "agent(#{@agent_count}) #{caller[1]}" do
-        before :each do
-          start = ::Time.now
-          @agent = LogStash::Agent.new
-          @agent.run(["--quiet", "-e", config_str])
-          @agent.wait
-          @duration = ::Time.now - start
-        end
-        it("looks good", &block)
+      it("agent(#{caller[0].gsub(/ .*/, "")}) runs") do
+        pipeline = LogStash::Pipeline.new(config)
+        pipeline.run
+        block.call
       end
-      @agent_count += 1
     end # def agent
 
   end # module RSpec

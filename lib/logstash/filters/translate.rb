@@ -12,7 +12,7 @@ require "logstash/namespace"
 
 class LogStash::Filters::Translate < LogStash::Filters::Base
   config_name "translate"
-  plugin_status "experimental"
+  milestone 1
 
   # The field containing a response code If this field is an
   # array, only the first value will be used.
@@ -38,6 +38,10 @@ class LogStash::Filters::Translate < LogStash::Filters::Base
   # name with full path of external dictionary file.    
   # format of the table should be a YAML file which will be merged with the @dictionary.
   # make sure you encase any integer based keys in quotes.
+  # The YAML file should look something like this:
+  #
+  #     100: Continue
+  #     101: Switching Protocols
   config :dictionary_path, :validate => :path
 
   # The destination field you wish to populate with the translation code.

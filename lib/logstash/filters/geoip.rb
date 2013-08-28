@@ -13,7 +13,7 @@ require "tempfile"
 # <http://www.maxmind.com/en/geolite>.
 class LogStash::Filters::GeoIP < LogStash::Filters::Base
   config_name "geoip"
-  plugin_status "experimental"
+  milestone 1
 
   # GeoIP database file to use, Country, City, ASN, ISP and organization
   # databases are supported
@@ -21,10 +21,6 @@ class LogStash::Filters::GeoIP < LogStash::Filters::Base
   # If not specified, this will default to the GeoLiteCity database that ships
   # with logstash.
   config :database, :validate => :path
-
-  # The field containing IP address, hostname is also OK. If this field is an
-  # array, only the first value will be used.
-  config :field, :validate => :string, :deprecated => true
 
   # The field containing IP address, hostname is also OK. If this field is an
   # array, only the first value will be used.
@@ -36,9 +32,14 @@ class LogStash::Filters::GeoIP < LogStash::Filters::Base
   # are included in the event.
   #
   # For the built in GeoLiteCity database, the following are available:
-  # city_name, continent_code, country_code2, country_code3, country_name,
-  # dma_code, ip, latitude, longitude, postal_code, region_name, timezone
+  # city\_name, continent\_code, country\_code2, country\_code3, country\_name,
+  # dma\_code, ip, latitude, longitude, postal\_code, region\_name, timezone
   config :fields, :validate => :array
+
+  # Specify into what field you want the geoip data.
+  # This can be useful for example if you have a src\_ip and dst\_ip and want
+  # information of both IP's
+  config :target, :validate => :string, :default => 'geoip'
 
   public
   def register
@@ -58,6 +59,8 @@ class LogStash::Filters::GeoIP < LogStash::Filters::Base
       else
         if File.exists?("GeoLiteCity.dat")
           @database = "GeoLiteCity.dat"
+        elsif File.exists?("vendor/geoip/GeoLiteCity.dat")
+          @database = "vendor/geoip/GeoLiteCity.dat"
         else
           raise "You must specify 'database => ...' in your geoip filter"
         end
@@ -77,14 +80,6 @@ class LogStash::Filters::GeoIP < LogStash::Filters::Base
       :isp
     else
       raise RuntimeException.new "This GeoIP database is not currently supported"
-    end
-
-    #TODO(electrical): Remove this when removing the field variable
-    if @field
-      if @source
-        logger.error("'field' and 'source' are the same setting, but 'field' is deprecated. Please use only 'source'")
-      end
-      @source = @field
     end
 
   end # def register
@@ -108,17 +103,17 @@ class LogStash::Filters::GeoIP < LogStash::Filters::Base
 
     geo_data_hash = geo_data.to_hash
     geo_data_hash.delete(:request)
-    event["geoip"] = {} if event["geoip"].nil?
+    event[@target] = {} if event[@target].nil?
     geo_data_hash.each do |key, value|
       if @fields.nil? || @fields.empty?
         # no fields requested, so add all geoip hash items to
         # the event's fields.
         # convert key to string (normally a Symbol)
-        event["geoip"][key.to_s] = value
+        event[@target][key.to_s] = value
       elsif @fields.include?(key.to_s)
         # Check if the key is in our fields array
         # convert key to string (normally a Symbol)
-        event["geoip"][key.to_s] = value
+        event[@target][key.to_s] = value
       end
     end # geo_data_hash.each
     filter_matched(event)

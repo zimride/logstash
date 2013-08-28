@@ -10,7 +10,7 @@ class LogStash::Outputs::Http < LogStash::Outputs::Base
   # event json itself.
 
   config_name "http"
-  plugin_status "experimental"
+  milestone 1
 
   # URL to use
   config :url, :validate => :string, :required => :true
@@ -23,7 +23,7 @@ class LogStash::Outputs::Http < LogStash::Outputs::Base
   config :http_method, :validate => ["put", "post"], :required => :true
 
   # Custom headers to use
-  # format is `headers => ["X-My-Header", "%{@source_host}"]
+  # format is `headers => ["X-My-Header", "%{source}"]
   config :headers, :validate => :hash
 
   # Content type
@@ -39,7 +39,7 @@ class LogStash::Outputs::Http < LogStash::Outputs::Base
   #
   # For example:
   #
-  #    mapping => ["foo", "%{@source_host}", "bar", "%{@type}"]
+  #    mapping => ["foo", "%{source}", "bar", "%{type}"]
   config :mapping, :validate => :hash
 
   # Set the format of the http body.

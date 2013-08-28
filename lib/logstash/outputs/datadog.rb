@@ -10,22 +10,22 @@ class LogStash::Outputs::Datadog < LogStash::Outputs::Base
   #
 
   config_name "datadog"
-  plugin_status "experimental"
+  milestone 1
 
   # Your DatadogHQ API key
   config :api_key, :validate => :string, :required => true
 
   # Title
-  config :title, :validate => :string, :default => "Logstash event for %{@source_host}"
+  config :title, :validate => :string, :default => "Logstash event for %{source}"
 
   # Text
-  config :text, :validate => :string, :default => "%{@message}"
+  config :text, :validate => :string, :default => "%{message}"
 
   # Date Happened
   config :date_happened, :validate => :string
 
   # Source type name
-  config :source_type_name, :validate => ["nagios", "hudson", "jenkins", "user", "my apps", "feed", "chef", "puppet", "git", "bitbucket"], :default => "my apps"
+  config :source_type_name, :validate => ["nagios", "hudson", "jenkins", "user", "my apps", "feed", "chef", "puppet", "git", "bitbucket", "fabric", "capistrano"], :default => "my apps"
  
   # Alert type
   config :alert_type, :validate => ["info", "error", "warning", "success"]

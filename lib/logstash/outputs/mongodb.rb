@@ -4,7 +4,7 @@ require "logstash/namespace"
 class LogStash::Outputs::Mongodb < LogStash::Outputs::Base
 
   config_name "mongodb"
-  plugin_status "beta"
+  milestone 2
 
   # a MongoDB URI to connect to
   # See http://docs.mongodb.org/manual/reference/connection-string/
@@ -52,9 +52,9 @@ class LogStash::Outputs::Mongodb < LogStash::Outputs::Base
       if @isodate
         # the mongodb driver wants time values as a ruby Time object.
         # set the @timestamp value of the document to a ruby Time object, then.
-        document = event.to_hash.merge("@timestamp" => event.ruby_timestamp)
-      else
         document = event.to_hash
+      else
+        document = event.to_hash.merge("@timestamp" => event["@timestamp"].to_json)
       end
       if @generateId
         document['_id'] = BSON::ObjectId.new(nil, event.ruby_timestamp)
@@ -64,14 +64,14 @@ class LogStash::Outputs::Mongodb < LogStash::Outputs::Base
       @logger.warn("Failed to send event to MongoDB", :event => event, :exception => e,
                    :backtrace => e.backtrace)
       if e.error_code == 11000
-          # On a duplicate key error, skip the insert.
-          # We could check if the duplicate key err is the _id key
-          # and generate a new primary key.
-          # If the duplicate key error is on another field, we have no way
-          # to fix the issue.
+        # On a duplicate key error, skip the insert.
+        # We could check if the duplicate key err is the _id key
+        # and generate a new primary key.
+        # If the duplicate key error is on another field, we have no way
+        # to fix the issue.
       else
-          sleep @retry_delay
-          retry
+        sleep @retry_delay
+        retry
       end
     end
   end # def receive

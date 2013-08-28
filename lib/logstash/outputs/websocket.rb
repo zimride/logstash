@@ -4,12 +4,12 @@ require "logstash/outputs/base"
 # This output runs a websocket server and publishes any 
 # messages to all connected websocket clients.
 #
-# You can connect to it with ws://<host>:<port>/
+# You can connect to it with ws://<host\>:<port\>/
 #
 # If no clients are connected, any messages received are ignored.
 class LogStash::Outputs::WebSocket < LogStash::Outputs::Base
   config_name "websocket"
-  plugin_status "experimental"
+  milestone 1
 
   # The address to serve websocket data from
   config :host, :validate => :string, :default => "0.0.0.0"

@@ -1,5 +1,6 @@
 require "logstash/inputs/base"
 require "logstash/namespace"
+require "stud/interval"
 require "socket" # for Socket.gethostname
 
 # Read mail from IMAP servers
@@ -8,7 +9,7 @@ require "socket" # for Socket.gethostname
 # to the trash.
 class LogStash::Inputs::IMAP < LogStash::Inputs::Base
   config_name "imap"
-  plugin_status "experimental"
+  milestone 1
   ISO8601_STRFTIME = "%04d-%02d-%02dT%02d:%02d:%02d.%06d%+03d:00".freeze
 
   config :host, :validate => :string, :required => true
@@ -21,6 +22,7 @@ class LogStash::Inputs::IMAP < LogStash::Inputs::Base
   config :fetch_count, :validate => :number, :default => 50
   config :lowercase_headers, :validate => :boolean, :default => true
   config :check_interval, :validate => :number, :default => 300
+  config :delete, :validate => :boolean, :default => false
 
   public
   def register
@@ -53,21 +55,23 @@ class LogStash::Inputs::IMAP < LogStash::Inputs::Base
     # EOFError, OpenSSL::SSL::SSLError
     imap = connect
     imap.select("INBOX")
-    ids = imap.search("ALL")
+    ids = imap.search("NOT SEEN")
 
     ids.each_slice(@fetch_count) do |id_set|
       items = imap.fetch(id_set, "RFC822")
       items.each do |item|
         mail = Mail.read_from_string(item.attr["RFC822"])
-        queue << mail_to_event(mail)
+        queue << parse_mail(mail)
       end
+
+      imap.store(id_set, '+FLAGS', @delete ? :Deleted : :Seen)
     end
 
     imap.close
     imap.disconnect
   end # def run
 
-  def mail_to_event(mail)
+  def parse_mail(mail)
     # TODO(sissel): What should a multipart message look like as an event?
     # For now, just take the plain-text part and set it as the message.
     if mail.parts.count == 0
@@ -75,16 +79,14 @@ class LogStash::Inputs::IMAP < LogStash::Inputs::Base
       message = mail.body.decoded
     else
       # Multipart message; use the first text/plain part we find
-      message = mail.parts.find { |p| p.content_type =~ /^text\/plain/ }.decoded
+      part = mail.parts.find { |p| p.content_type =~ /^text\/plain/ } || mail.parts.first
+      message = part.decoded
     end
 
-    event = to_event(message, "imap://#{@user}@#{@host}/#{m.from.first rescue ""}")
-   
+    event = LogStash::Event.new("message" => message)
+
     # Use the 'Date' field as the timestamp
-    t = mail.date.to_time.gmtime
-    event["@timestamp"] = sprintf(ISO8601_STRFTIME, t.year, t.month,
-                                  t.day, t.hour, t.min, t.sec, t.tv_usec,
-                                  t.utc_offset / 3600)
+    event["@timestamp"] = mail.date.to_time.gmtime
 
     # Add fields: Add message.header_fields { |h| h.name=> h.value }
     mail.header_fields.each do |header|

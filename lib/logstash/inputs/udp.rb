@@ -1,21 +1,22 @@
 require "date"
 require "logstash/inputs/base"
 require "logstash/namespace"
-require "logstash/time_addon" # should really use the filters/date.rb bits
 require "socket"
 
 # Read messages as events over the network via udp.
 #
 class LogStash::Inputs::Udp < LogStash::Inputs::Base
   config_name "udp"
-  plugin_status "beta"
+  milestone 2
+
+  default :codec, "plain"
 
   # The address to listen on
   config :host, :validate => :string, :default => "0.0.0.0"
 
   # The port to listen on. Remember that ports less than 1024 (privileged
-  # ports) may require root to use.
-  config :port, :validate => :number, :default => 9999
+  # ports) may require root or elevated privileges to use.
+  config :port, :validate => :number, :required => true
 
   # Buffer size
   config :buffer_size, :validate => :number, :default => 8192
@@ -56,15 +57,14 @@ class LogStash::Inputs::Udp < LogStash::Inputs::Base
     @udp.bind(@host, @port)
 
     loop do
-      line, client = @udp.recvfrom(@buffer_size)
-      # Ruby uri sucks, so don't use it.
-      source = "udp://#{client[3]}:#{client[1]}/"
-
-      e = to_event(line, source)
-      if e
-        output_queue << e
+      payload, client = @udp.recvfrom(@buffer_size)
+      @codec.decode(payload) do |event|
+        event["source"] = "#{client[3]}:#{client[1]}"
+        output_queue << event
       end
     end
+  rescue LogStash::ShutdownSignal
+    # shutdown
   ensure
     if @udp
       @udp.close_read rescue nil

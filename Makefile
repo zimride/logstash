@@ -2,8 +2,8 @@
 #   rsync
 #   wget or curl
 #
-JRUBY_VERSION=1.7.3
-ELASTICSEARCH_VERSION=0.20.5
+JRUBY_VERSION=1.7.4
+ELASTICSEARCH_VERSION=0.90.3
 #VERSION=$(shell ruby -r./lib/logstash/version -e 'puts LOGSTASH_VERSION')
 VERSION=$(shell awk -F\" '/LOGSTASH_VERSION/ {print $$2}' lib/logstash/version.rb)
 
@@ -16,7 +16,8 @@ ELASTICSEARCH_URL=http://download.elasticsearch.org/elasticsearch/elasticsearch
 ELASTICSEARCH=vendor/jar/elasticsearch-$(ELASTICSEARCH_VERSION)
 GEOIP=vendor/geoip/GeoLiteCity.dat
 GEOIP_URL=http://logstash.objects.dreamhost.com/maxmind/GeoLiteCity-2013-01-18.dat.gz
-PLUGIN_FILES=$(shell git ls-files | egrep '^lib/logstash/(inputs|outputs|filters)/[^/]+$$' | egrep -v '/(base|threadable).rb$$|/inputs/ganglia/')
+KIBANA_URL=https://github.com/elasticsearch/kibana/archive/master.tar.gz
+PLUGIN_FILES=$(shell git ls-files | egrep '^lib/logstash/(inputs|outputs|filters|codecs)/[^/]+$$' | egrep -v '/(base|threadable).rb$$|/inputs/ganglia/')
 QUIET=@
 
 WGET=$(shell which wget 2>/dev/null)
@@ -30,8 +31,14 @@ else
 TAR_OPTS=--wildcards
 endif
 
-TESTS=$(wildcard spec/support/*.rb spec/filters/*.rb spec/examples/*.rb spec/event.rb spec/outputs/graphite.rb)
-default: jar
+TESTS=$(wildcard spec/support/*.rb spec/filters/*.rb spec/examples/*.rb spec/codecs/*.rb spec/conditionals/*.rb spec/event.rb spec/jar.rb)
+#spec/outputs/graphite.rb spec/outputs/email.rb)
+default: 
+	@echo "Make targets you might be interested in:"
+	@echo "  flatjar -- builds the flatjar jar"
+	@echo "  flatjar-test -- runs the test suite against the flatjar"
+	@echo "  jar -- builds the monolithic jar"
+	@echo "  jar-test -- runs the test suite against the monolithic jar"
 
 # Figure out if we're using wget or curl
 .PHONY: wget-or-curl
@@ -50,7 +57,7 @@ endif
 # Compile config grammar (ragel -> ruby)
 .PHONY: compile-grammar
 compile-grammar: lib/logstash/config/grammar.rb
-lib/logstash/config/grammar.rb: lib/logstash/config/grammar.rl
+lib/logstash/config/grammar.rb: lib/logstash/config/grammar.treetop
 	$(QUIET)$(MAKE) -C lib/logstash/config grammar.rb
 
 .PHONY: clean
@@ -59,6 +66,7 @@ clean:
 	-$(QUIET)rm -rf .bundle
 	-$(QUIET)rm -rf build
 	-$(QUIET)rm -rf vendor
+	-$(QUIET)rm -f pkg/*.deb
 
 .PHONY: compile
 compile: compile-grammar compile-runner | build/ruby
@@ -152,12 +160,19 @@ build/ruby: | build
 # Run this one always? Hmm..
 .PHONY: build/monolith
 build/monolith: $(ELASTICSEARCH) $(JRUBY) $(GEOIP) vendor-gems | build
+build/monolith: vendor/ua-parser/regexes.yaml
+build/monolith: vendor/kibana
 build/monolith: compile copy-ruby-files vendor/jar/graphtastic-rmiclient.jar
 	-$(QUIET)mkdir -p $@
 	@# Unpack all the 3rdparty jars and any jars in gems
 	$(QUIET)find $$PWD/vendor/bundle $$PWD/vendor/jar -name '*.jar' \
 	| (cd $@; xargs -n1 jar xf)
-	@# copy openssl/lib/shared folders/files to root of jar - need this for openssl to work with JRuby
+	@# Merge all service file in all 3rdparty jars
+	$(QUIET)mkdir -p $@/META-INF/services/
+	$(QUIET)find $$PWD/vendor/bundle $$PWD/vendor/jar -name '*.jar' \
+	| xargs $(JRUBY_CMD) extract_services.rb -o $@/META-INF/services
+	@# copy openssl/lib/shared folders/files to root of jar 
+	@#- need this for openssl to work with JRuby
 	$(QUIET)mkdir -p $@/openssl
 	$(QUIET)mkdir -p $@/jopenssl
 	$(QUIET)cp -r $$PWD/vendor/bundle/jruby/1.9/gems/jruby-openss*/lib/shared/openssl/* $@/openssl
@@ -171,20 +186,27 @@ build/monolith: compile copy-ruby-files vendor/jar/graphtastic-rmiclient.jar
 	-$(QUIET)rm -f $@/META-INF/*.SF
 	-$(QUIET)rm -f $@/META-INF/NOTICE $@/META-INF/NOTICE.txt
 	-$(QUIET)rm -f $@/META-INF/LICENSE $@/META-INF/LICENSE.txt
+	-$(QUIET)mkdir -p $@/vendor/ua-parser
+	-$(QUIET)cp vendor/ua-parser/regexes.yaml $@/vendor/ua-parser
 	$(QUIET)cp $(GEOIP) $@/
+	-$(QUIET)rsync -a vendor/kibana/ $@/vendor/kibana/
+
+vendor/ua-parser/: | build
+	$(QUIET)mkdir $@
+
+vendor/ua-parser/regexes.yaml: | vendor/ua-parser/
+	$(QUIET)$(DOWNLOAD_COMMAND) $@ https://raw.github.com/tobie/ua-parser/master/regexes.yaml
 
 # Learned how to do pack gems up into the jar mostly from here:
 # http://blog.nicksieger.com/articles/2009/01/10/jruby-1-1-6-gems-in-a-jar
-VENDOR_DIR=$(shell ls -d vendor/bundle/*ruby/*)
+VENDOR_DIR=$(shell ls -d vendor/bundle/jruby/*)
 jar: build/logstash-$(VERSION)-monolithic.jar
 build/logstash-$(VERSION)-monolithic.jar: | build/monolith
 build/logstash-$(VERSION)-monolithic.jar: JAR_ARGS=-C build/ruby .
 build/logstash-$(VERSION)-monolithic.jar: JAR_ARGS+=-C build/monolith .
 build/logstash-$(VERSION)-monolithic.jar: JAR_ARGS+=-C $(VENDOR_DIR) gems
 build/logstash-$(VERSION)-monolithic.jar: JAR_ARGS+=-C $(VENDOR_DIR) specifications
-build/logstash-$(VERSION)-monolithic.jar: JAR_ARGS+=-C lib logstash/web/public
 build/logstash-$(VERSION)-monolithic.jar: JAR_ARGS+=-C lib logstash/certs
-build/logstash-$(VERSION)-monolithic.jar: JAR_ARGS+=-C lib logstash/web/views
 build/logstash-$(VERSION)-monolithic.jar: JAR_ARGS+=patterns
 build/logstash-$(VERSION)-monolithic.jar:
 	$(QUIET)rm -f $@
@@ -207,12 +229,13 @@ build/flatgems: | build vendor/bundle
 	$(QUIET)rsync -a $(VENDOR_DIR)/gems/user_agent_parser-*/vendor/ua-parser $@/vendor
 
 flatjar-test:
-	GEM_HOME= GEM_PATH= java -jar build/logstash-$(VERSION)-flatjar.jar rspec $(TESTS)
-	cd build && GEM_HOME= GEM_PATH= java -jar logstash-$(VERSION)-flatjar.jar rspec spec/jar.rb
+	# chdir away from the project directory to make sure things work in isolation.
+	cd / && GEM_HOME= GEM_PATH= java -jar $(PWD)/build/logstash-$(VERSION)-flatjar.jar rspec $(TESTS) --fail-fast
+	#cd / && GEM_HOME= GEM_PATH= java -jar $(PWD)/build/logstash-$(VERSION)-flatjar.jar rspec spec/jar.rb
 
 jar-test:
-	GEM_HOME= GEM_PATH= java -jar build/logstash-$(VERSION)-monolithic.jar rspec $(TESTS)
-	cd build && GEM_HOME= GEM_PATH= java -jar logstash-$(VERSION)-monolithic.jar rspec spec/jar.rb
+	cd / && GEM_HOME= GEM_PATH= java -jar $(PWD)/build/logstash-$(VERSION)-monolithic.jar rspec $(TESTS) --fail-fast
+	#cd / && GEM_HOME= GEM_PATH= java -jar $(PWD)/build/logstash-$(VERSION)-monolithic.jar rspec spec/jar.rb
 
 flatjar-test-and-report:
 	GEM_HOME= GEM_PATH= java -jar build/logstash-$(VERSION)-flatjar.jar rspec $(TESTS) --format h --out build/results.flatjar.html
@@ -223,11 +246,8 @@ jar-test-and-report:
 flatjar: build/logstash-$(VERSION)-flatjar.jar
 build/jar: | build build/flatgems build/monolith
 	$(QUIET)mkdir build/jar
-	$(QUIET)rsync -a --delete build/flatgems/root/ build/flatgems/lib/ build/monolith/ build/ruby/ patterns build/jar/
-	$(QUIET)rsync -a --delete build/flatgems/data build/jar/
-	$(QUIET)(cd lib; rsync -a --delete logstash/web/public ../build/jar/logstash/web/public)
-	$(QUIET)(cd lib; rsync -a --delete logstash/web/views ../build/jar/logstash/web/views)
-	$(QUIET)(cd lib; rsync -a --delete logstash/certs ../build/jar/logstash/certs)
+	$(QUIET)rsync -a build/flatgems/root/ build/flatgems/lib/ build/monolith/ build/ruby/ patterns build/flatgems/data build/jar/
+	$(QUIET)(cd lib; rsync -a --delete logstash/certs/ ../build/jar/logstash/certs)
 
 build/logstash-$(VERSION)-flatjar.jar: | build/jar
 	$(QUIET)rm -f $@
@@ -242,8 +262,8 @@ update-flatjar: copy-ruby-files compile build/ruby/logstash/runner.class
 
 .PHONY: test
 test: | $(JRUBY) vendor-elasticsearch
-	@#$(JRUBY_CMD) bin/logstash test
-	GEM_HOME= GEM_PATH= bin/logstash rspec $(TESTS)
+	GEM_HOME= GEM_PATH= bin/logstash rspec --order rand --fail-fast $(TESTS)
+
 
 .PHONY: docs
 docs: docgen doccopy docindex
@@ -256,7 +276,7 @@ docgen: $(addprefix build/docs/,$(subst lib/logstash/,,$(subst .rb,.html,$(PLUGI
 build/docs: build
 	-$(QUIET)mkdir $@
 
-build/docs/inputs build/docs/filters build/docs/outputs: | build/docs
+build/docs/inputs build/docs/filters build/docs/outputs build/docs/codecs: | build/docs
 	-$(QUIET)mkdir $@
 
 # bluecloth gem doesn't work on jruby. Use ruby.
@@ -272,6 +292,9 @@ build/docs/outputs/%.html: lib/logstash/outputs/%.rb docs/docgen.rb docs/plugin-
 	$(QUIET)ruby docs/docgen.rb -o build/docs $<
 	$(QUIET)sed -i -re 's/%VERSION%/$(VERSION)/g' $@
 	$(QUIET)sed -i -re 's/%ELASTICSEARCH_VERSION%/$(ELASTICSEARCH_VERSION)/g' $@
+build/docs/codecs/%.html: lib/logstash/codecs/%.rb docs/docgen.rb docs/plugin-doc.html.erb | build/docs/codecs
+	$(QUIET)ruby docs/docgen.rb -o build/docs $<
+	$(QUIET)sed -i -re 's/%VERSION%/$(VERSION)/g' $@
 
 build/docs/%: docs/% lib/logstash/version.rb Makefile
 	@echo "Copying $< (to $@)"
@@ -342,11 +365,7 @@ package:
 		./build.sh debian 6; \
 	)
 
-kibana: | build
-	$(QUIET)mkdir build/kibana || true
-	$(QUIET)[ -f build/kibana/kibana.gemspec ] || $(QUIET)$(DOWNLOAD_COMMAND) - https://github.com/rashidkpc/Kibana/archive/v0.2.0.tar.gz | tar -C build/kibana --strip-components 1 -zx 
-	$(QUIET)grep -v thin build/kibana/kibana.gemspec > build/kibana/kibanablah.gemspec
-	$(QUIET)GEM_HOME=./vendor/bundle/jruby/1.9/ GEM_PATH= $(JRUBY_CMD) --1.9 ./gembag.rb build/kibana/kibanablah.gemspec
-
-kibana-flatjar: | kibana
-	$(QUIET)jar uf build/logstash-$(VERSION)-flatjar.jar -C build/kibana .
+vendor/kibana: | build
+	$(QUIET)mkdir vendor/kibana || true
+	$(DOWNLOAD_COMMAND) - $(KIBANA_URL) | tar -C $@ -zx --strip-components=1
+	$(QUIET)mv vendor/kibana/dashboards/logstash.json vendor/kibana/dashboards/default.json

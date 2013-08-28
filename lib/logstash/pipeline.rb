@@ -1,105 +1,82 @@
 require "logstash/config/file"
-#require "logstash/agent" # only needed for now for parse_config
 require "logstash/namespace"
 require "thread" # stdlib
-require "stud/trap"
+require "logstash/filters/base"
+require "logstash/inputs/base"
+require "logstash/outputs/base"
+require "logstash/errors"
 
 class LogStash::Pipeline
-  class ShutdownSignal < StandardError; end
-
   def initialize(configstr)
-    # hacks for now to parse a config string
-    config = LogStash::Config::File.new(nil, configstr)
-    @inputs, @filters, @outputs = parse_config(config)
+    @logger = Cabin::Channel.get(LogStash)
+    grammar = LogStashConfigParser.new
+    @config = grammar.parse(configstr)
+    if @config.nil?
+      raise LogStash::ConfigurationError, grammar.failure_reason
+    end
+
+    # This will compile the config to ruby and evaluate the resulting code.
+    # The code will initialize all the plugins and define the
+    # filter and output methods.
+    code = @config.compile
+    # The config code is hard to represent as a log message...
+    # So just print it.
+    @logger.debug? && @logger.debug("Compiled pipeline code:\n#{code}")
+    begin
+      eval(code)
+    rescue => e
+      p e.backtrace[1]
+      raise
+    end
 
     @input_to_filter = SizedQueue.new(20)
-    @filter_to_output = SizedQueue.new(20)
 
     # If no filters, pipe inputs directly to outputs
-    if @filters.empty?
-      @input_to_filter = @filter_to_output
+    if !filters?
+      @filter_to_output = @input_to_filter
+    else
+      @filter_to_output = SizedQueue.new(20)
     end
-
-    @logger = Cabin::Channel.get(LogStash)
-    (@inputs + @filters + @outputs).each do |plugin|
-      plugin.logger = @logger
-    end
-
-    @inputs.each(&:register)
-    @filters.each(&:register)
-    @outputs.each(&:register)
+    @settings = {
+      "filter-workers" => 1,
+    }
   end # def initialize
 
-  # Parses a config and returns [inputs, filters, outputs]
-  def parse_config(config)
-    # TODO(sissel): Move this method to config/file.rb
-    inputs = []
-    filters = []
-    outputs = []
-    config.parse do |plugin|
-      # 'plugin' is a has containing:
-      #   :type => the base class of the plugin (LogStash::Inputs::Base, etc)
-      #   :plugin => the class of the plugin (LogStash::Inputs::File, etc)
-      #   :parameters => hash of key-value parameters from the config.
-      type = plugin[:type].config_name  # "input" or "filter" etc...
-      klass = plugin[:plugin]
+  def ready?
+    return @ready
+  end
 
-      # Create a new instance of a plugin, called like:
-      # -> LogStash::Inputs::File.new( params )
-      instance = klass.new(plugin[:parameters])
-      instance.logger = @logger
+  def started?
+    return @started
+  end
 
-      case type
-        when "input"
-          inputs << instance
-        when "filter"
-          filters << instance
-        when "output"
-          outputs << instance
-        else
-          msg = "Unknown config type '#{type}'"
-          @logger.error(msg)
-          raise msg
-      end # case type
-    end # config.parse
-    return inputs, filters, outputs
-  end # def parse_config
+  def configure(setting, value)
+    @settings[setting] = value
+  end
+
+  def filters?
+    return @filters.any?
+  end
 
   def run
-    start = Time.now
+    @started = true
+    @input_threads = []
+    start_inputs
+    start_filters if filters?
+    start_outputs
 
-    # one thread per input
-    @input_threads = @inputs.collect do |input|
-      Thread.new(input) do |input|
-        inputworker(input)
-      end
-    end
-
-    # one filterworker thread
-    #@filter_threads = @filters.collect do |input
-    # TODO(sissel): THIS IS WHERE I STOPPED WORKING
-
-    # one outputworker thread
-
-    @output_thread = Thread.new do 
-      outputworker
-    end
+    @ready = true
 
     @logger.info("Pipeline started")
-    
-    @input_threads.each(&:join)
+    wait_inputs
 
-    # All input plugins have completed, send a shutdown signal.
-    duration = Time.now - start
-    puts "Duration: #{duration}"
-
-    @input_to_filter.push(ShutdownSignal)
-
-    # Wait for filters to stop
-    @filter_threads.each(&:join) if @filter_threads
-
-    # Wait for the outputs to stop
-    @output_thread.join
+    # In theory there's nothing to do to filters to tell them to shutdown?
+    if filters?
+      shutdown_filters
+      wait_filters
+    end
+    shutdown_outputs
+    wait_outputs
 
     @logger.info("Pipeline shutdown complete.")
 
@@ -107,58 +84,132 @@ class LogStash::Pipeline
     return 0
   end # def run
 
+  def wait_inputs
+    @input_threads.each(&:join)
+  rescue Interrupt
+    # rbx does weird things during do SIGINT that I haven't debugged
+    # so we catch Interrupt here and signal a shutdown. For some reason the
+    # signal handler isn't invoked it seems? I dunno, haven't looked much into
+    # it.
+    shutdown
+  end
+
+  def shutdown_filters
+    @input_to_filter.push(LogStash::ShutdownSignal)
+  end
+
+  def wait_filters
+    @filter_threads.each(&:join) if @filter_threads
+  end
+
+  def shutdown_outputs
+    # nothing, filters will do this
+    @filter_to_output.push(LogStash::ShutdownSignal)
+  end
+
+  def wait_outputs
+    # Wait for the outputs to stop
+    @output_threads.each(&:join)
+  end
+
+  def start_inputs
+    moreinputs = []
+    @inputs.each do |input|
+      if input.threadable && input.threads > 1
+        (input.threads-1).times do |i|
+          moreinputs << input.clone
+        end
+      end
+    end
+    @inputs += moreinputs
+
+    @inputs.each do |input|
+      input.register
+      start_input(input)
+    end
+  end
+
+  def start_filters
+    @filters.each(&:register)
+    @filter_threads = @settings["filter-workers"].times.collect do
+      Thread.new { filterworker }
+    end
+  end
+
+  def start_outputs
+    @output_threads = [
+      Thread.new { outputworker }
+    ]
+  end
+
+  def start_input(plugin)
+    @input_threads << Thread.new { inputworker(plugin) }
+  end
+
   def inputworker(plugin)
+    LogStash::Util::set_thread_name("<#{plugin.class.config_name}")
     begin
       plugin.run(@input_to_filter)
-    rescue ShutdownSignal
+    rescue LogStash::ShutdownSignal
       plugin.teardown
     rescue => e
-      @logger.error(I18n.t("logstash.pipeline.worker-error",
-                           :plugin => plugin.inspect, :error => e))
-      puts e.backtrace
+      if @logger.debug?
+        @logger.error(I18n.t("logstash.pipeline.worker-error-debug",
+                             :plugin => plugin.inspect, :error => e.to_s,
+                             :exception => e.class,
+                             :stacktrace => e.backtrace.join("\n")))
+      else
+        @logger.error(I18n.t("logstash.pipeline.worker-error",
+                             :plugin => plugin.inspect, :error => e))
+      end
+      puts e.backtrace if @logger.debug?
       plugin.teardown
+      sleep 1
       retry
     end
   end # def inputworker
 
   def filterworker
+    LogStash::Util::set_thread_name("|worker")
     begin
       while true
         event = @input_to_filter.pop
-        break if event == ShutdownSignal
-
-        # Apply filters, in order, to the event.
-        @filters.each do |filter|
-          filter.execute(event)
+        if event == LogStash::ShutdownSignal
+          @input_to_filter.push(event)
+          break
         end
-        next if event.cancelled?
 
-        @filter_to_output.push(event)
+
+        # TODO(sissel): we can avoid the extra array creation here
+        # if we don't guarantee ordering of origin vs created events.
+        # - origin event is one that comes in naturally to the filter worker.
+        # - created events are emitted by filters like split or metrics
+        events = [event]
+        filter(event) do |newevent|
+          events << newevent
+        end
+        events.each do |event|
+          next if event.cancelled?
+          @filter_to_output.push(event)
+        end
       end
     rescue => e
-      @logger.error("Exception in plugin #{plugin.class}",
-                    "plugin" => plugin.inspect, "exception" => e)
+      @logger.error("Exception in filterworker", "exception" => e, "backtrace" => e.backtrace)
     end
 
     @filters.each(&:teardown)
   end # def filterworker
 
   def outputworker
+    LogStash::Util::set_thread_name(">output")
+    @outputs.each(&:register)
     while true
       event = @filter_to_output.pop
-      break if event == ShutdownSignal
-
-      @outputs.each do |output|
-        begin
-          output.receive(event)
-        rescue => e
-          @logger.error("Exception in plugin #{plugin.class}",
-                        "plugin" => plugin.inspect, "exception" => e)
-        end
-      end # @outputs.each
+      break if event == LogStash::ShutdownSignal
+      output(event)
     end # while true
     @outputs.each(&:teardown)
-  end # def filterworker
+  end # def outputworker
 
   # Shutdown this pipeline.
   #
@@ -168,11 +219,28 @@ class LogStash::Pipeline
       # Interrupt all inputs
       @logger.info("Sending shutdown signal to input thread",
                    :thread => thread)
-      thread.raise(ShutdownSignal)
-      thread.wakeup # in case it's in blocked IO or sleeping
+      thread.raise(LogStash::ShutdownSignal)
+      begin
+        thread.wakeup # in case it's in blocked IO or sleeping
+      rescue ThreadError
+      end
     end
 
     # No need to send the ShutdownSignal to the filters/outputs nor to wait for
     # the inputs to finish, because in the #run method we wait for that anyway.
   end # def shutdown
+
+  def plugin(plugin_type, name, *args)
+    args << {} if args.empty?
+    klass = LogStash::Plugin.lookup(plugin_type, name)
+    return klass.new(*args)
+  end
+
+  def filter(event, &block)
+    @filter_func.call(event, &block)
+  end
+
+  def output(event)
+    @output_func.call(event)
+  end
 end # class Pipeline

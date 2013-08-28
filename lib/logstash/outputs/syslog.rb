@@ -8,7 +8,7 @@ require "date"
 # UDP or TCP syslog transport is supported
 class LogStash::Outputs::Syslog < LogStash::Outputs::Base
   config_name "syslog"
-  plugin_status "experimental"
+  milestone 1
 
   FACILITY_LABELS = [
     "kernel",
@@ -64,7 +64,7 @@ class LogStash::Outputs::Syslog < LogStash::Outputs::Base
   config :severity, :validate => SEVERITY_LABELS, :required => true
 
   # source host for syslog message
-  config :sourcehost, :validate => :string, :default => "%{@source_host}"
+  config :sourcehost, :validate => :string, :default => "%{source}"
 
   # timestamp for syslog message
   config :timestamp, :validate => :string, :default => "%{@timestamp}"

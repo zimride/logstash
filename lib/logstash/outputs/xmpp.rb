@@ -7,7 +7,7 @@ require "logstash/namespace"
 # use it for PubSub or general message passing for logstash to logstash.
 class LogStash::Outputs::Xmpp < LogStash::Outputs::Base
   config_name "xmpp"
-  plugin_status "beta"
+  milestone 2
 
   # The user or resource ID, like foo@example.com.
   config :user, :validate => :string, :required => :true
@@ -26,7 +26,7 @@ class LogStash::Outputs::Xmpp < LogStash::Outputs::Base
   # the host on the user/identity is used. (foo.com for user@foo.com)
   config :host, :validate => :string
 
-  # The message to send. This supports dynamic strings like %{@source_host}
+  # The message to send. This supports dynamic strings like %{source}
   config :message, :validate => :string, :required => true
 
   public

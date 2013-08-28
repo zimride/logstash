@@ -10,7 +10,7 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
   include Stud::Buffer
 
   config_name "redis"
-  plugin_status "beta"
+  milestone 2
 
   # Name is used for logging in case there are multiple instances.
   # TODO: delete
@@ -43,12 +43,12 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
   config :password, :validate => :password
 
   # The name of the redis queue (we'll use RPUSH on this). Dynamic names are
-  # valid here, for example "logstash-%{@type}"
+  # valid here, for example "logstash-%{type}"
   # TODO: delete
   config :queue, :validate => :string, :deprecated => true
 
   # The name of a redis list or channel. Dynamic names are
-  # valid here, for example "logstash-%{@type}".
+  # valid here, for example "logstash-%{type}".
   # TODO set required true
   config :key, :validate => :string, :required => false
 
@@ -141,16 +141,27 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
       return
     end
 
-    event_key = event.sprintf(@key)
-    event_key_and_payload = [event_key, event.to_json]
+    key = event.sprintf(@key)
+    # TODO(sissel): We really should not drop an event, but historically
+    # we have dropped events that fail to be converted to json.
+    # TODO(sissel): Find a way to continue passing events through even
+    # if they fail to convert properly.
+    begin
+      payload = event.to_json
+    rescue Encoding::UndefinedConversionError, ArgumentError
+      puts "FAILUREENCODING"
+      @logger.error("Failed to convert event to JSON. Invalid UTF-8, maybe?",
+                    :event => event.inspect)
+      return
+    end
 
     begin
       @redis ||= connect
       if @data_type == 'list'
-        congestion_check(event_key)
-        @redis.rpush *event_key_and_payload
+        congestion_check(key)
+        @redis.rpush(key, payload)
       else
-        @redis.publish *event_key_and_payload
+        @redis.publish(key, payload)
       end
     rescue => e
       @logger.warn("Failed to send event to redis", :event => event,

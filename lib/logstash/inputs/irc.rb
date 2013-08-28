@@ -7,13 +7,15 @@ require "thread"
 class LogStash::Inputs::Irc < LogStash::Inputs::Base
 
   config_name "irc"
-  plugin_status "experimental"
+  milestone 1
+
+  default :codec, "plain"
 
   # Host of the IRC Server to connect to.
   config :host, :validate => :string, :required => true
 
   # Port for the IRC Server
-  config :port, :validate => :number, :required => true
+  config :port, :validate => :number, :default => 6667
 
   # Set this to true to enable SSL.
   config :secure, :validate => :boolean, :default => false
@@ -72,10 +74,14 @@ class LogStash::Inputs::Irc < LogStash::Inputs::Base
     end
     loop do
       msg = @irc_queue.pop
-      event = self.to_event(msg.message, "irc://#{@host}:#{@port}/#{msg.channel}")
-      event["channel"] = msg.channel
-      event["nick"] = msg.user.nick
-      output_queue << event
+      if msg.user
+        @codec.decode(msg.message) do |event|
+          event["channel"] = msg.channel.to_s
+          event["nick"] = msg.user.nick
+          event["server"] = "#{@host}:#{@port}"
+          output_queue << event
+        end
+      end
     end
   end # def run
 end # class LogStash::Inputs::Irc

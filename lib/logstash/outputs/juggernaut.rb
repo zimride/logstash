@@ -13,7 +13,7 @@ require "logstash/event"
 class LogStash::Outputs::Juggernaut < LogStash::Outputs::Base
 
   config_name "juggernaut"
-  plugin_status "experimental"
+  milestone 1
 
   # The hostname of the redis server to which juggernaut is listening.
   config :host, :validate => :string, :default => "127.0.0.1"
@@ -31,7 +31,7 @@ class LogStash::Outputs::Juggernaut < LogStash::Outputs::Base
   config :password, :validate => :password
 
   # List of channels to which to publish. Dynamic names are
-  # valid here, for example "logstash-%{@type}".
+  # valid here, for example "logstash-%{type}".
   config :channels, :validate => :array, :required => true
 
   # How should the message be formatted before pushing to the websocket.

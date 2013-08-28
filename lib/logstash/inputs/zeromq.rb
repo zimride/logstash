@@ -1,6 +1,5 @@
 require "logstash/inputs/base"
 require "logstash/namespace"
-require "timeout"
 require "socket"
 
 # Read events over a 0MQ SUB socket.
@@ -14,7 +13,9 @@ require "socket"
 class LogStash::Inputs::ZeroMQ < LogStash::Inputs::Base
 
   config_name "zeromq"
-  plugin_status "beta"
+  milestone 2
+
+  default :codec, "json"
 
   # 0mq socket address to connect or bind
   # Please note that `inproc://` will not work with logstash
@@ -72,7 +73,6 @@ class LogStash::Inputs::ZeroMQ < LogStash::Inputs::Base
   def register
     require "ffi-rzmq"
     require "logstash/util/zeromq"
-    @format ||= "json_event"
     self.class.send(:include, LogStash::Util::ZeroMQ)
 
     case @topology
@@ -125,7 +125,7 @@ class LogStash::Inputs::ZeroMQ < LogStash::Inputs::Base
       loop do
         # Here's the unified receiver
         # Get the first part as the msg
-        m1 = ''
+        m1 = ""
         rc = @zsocket.recv_string(m1)
         error_check(rc, "in recv_string")
         @logger.debug("ZMQ receiving", :event => m1)
@@ -141,16 +141,18 @@ class LogStash::Inputs::ZeroMQ < LogStash::Inputs::Base
           msg = m2
         end
         @sender ||= "zmq+#{@topology}://#{host}/#{@type}"
-        e = self.to_event(msg, @sender)
-        if e
-          output_queue << e
+
+        @codec.decode(msg) do |event|
+          output_queue << event
         end
       end
+    rescue LogStash::ShutdownSignal
+      # shutdown
+      return
     rescue => e
       @logger.debug("ZMQ Error", :subscriber => @zsocket,
-                    :exception => e, :backtrace => e.backtrace)
-    rescue Timeout::Error
-      @logger.debug("Read timeout", subscriber => @zsocket)
+                    :exception => e)
+      retry
     end # begin
   end # def run
 

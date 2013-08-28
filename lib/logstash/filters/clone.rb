@@ -1,6 +1,5 @@
 require "logstash/filters/base"
 require "logstash/namespace"
-require "logstash/time_addon"
 
 # The clone filter is for duplicating events.
 # A clone will be made for each type in the clone list.
@@ -8,7 +7,7 @@ require "logstash/time_addon"
 class LogStash::Filters::Clone < LogStash::Filters::Base
 
   config_name "clone"
-  plugin_status "beta"
+  milestone 2
 
   # A new clone will be created with the given type for each type in this list.
   config :clones, :validate => :array, :default => []
@@ -23,7 +22,7 @@ class LogStash::Filters::Clone < LogStash::Filters::Base
     return unless filter?(event)
     @clones.each do |type|
       clone = event.clone
-      clone.type = type
+      clone["type"] = type
       filter_matched(clone)
       @logger.debug("Cloned event", :clone => clone, :event => event)
 

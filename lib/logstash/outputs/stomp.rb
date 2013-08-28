@@ -3,7 +3,7 @@ require "logstash/namespace"
 
 class LogStash::Outputs::Stomp < LogStash::Outputs::Base
   config_name "stomp"
-  plugin_status "beta"
+  milestone 2
 
   # The address of the STOMP server.
   config :host, :validate => :string, :required => true
@@ -22,6 +22,9 @@ class LogStash::Outputs::Stomp < LogStash::Outputs::Base
   #
   # Example: "/topic/logstash"
   config :destination, :validate => :string, :required => true
+
+  # The vhost to use
+  config :vhost, :validate => :string, :default => nil
 
   # Enable debugging output?
   config :debug, :validate => :boolean, :default => false
@@ -44,6 +47,7 @@ class LogStash::Outputs::Stomp < LogStash::Outputs::Base
   def register
     require "onstomp"
     @client = OnStomp::Client.new("stomp://#{@host}:#{@port}", :login => @user, :passcode => @password.value)
+    @client.host = @vhost if @vhost
 
     # Handle disconnects
     @client.on_connection_closed {

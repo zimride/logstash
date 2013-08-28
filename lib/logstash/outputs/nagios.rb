@@ -21,33 +21,19 @@ require "logstash/outputs/base"
 #    CRITICAL and can be overriden by setting the "nagios_level" field to one
 #    of "OK", "WARNING", "CRITICAL", or "UNKNOWN" 
 #
-# The easiest way to use this output is with the grep filter.
-# Presumably, you only want certain events matching a given pattern
-# to send events to nagios. So use grep to match and also to add the required
-# fields.
-#
-#     filter {
-#       grep {
-#         type => "linux-syslog"
-#         match => [ "@message", "(error|ERROR|CRITICAL)" ]
-#         add_tag => [ "nagios-update" ]
-#         add_field => [
-#           "nagios_host", "%{@source_host}",
-#           "nagios_service", "the name of your nagios service check"
-#         ]
-#       }
-#     }
+#         match => [ "message", "(error|ERROR|CRITICAL)" ]
 #
 #     output{
-#       nagios {
-#         # only process events with this tag
-#         tags => "nagios-update"
+#       if [message] =~ /(error|ERROR|CRITICAL)/ {
+#         nagios {
+#           # your config here
+#         }
 #       }
 #     }
 class LogStash::Outputs::Nagios < LogStash::Outputs::Base
 
   config_name "nagios"
-  plugin_status "beta"
+  milestone 2
 
   # The path to your nagios command file
   config :commandfile, :validate => :path, :default => "/var/lib/nagios3/rw/nagios.cmd"
@@ -109,13 +95,12 @@ class LogStash::Outputs::Nagios < LogStash::Outputs::Base
       end
     end
 
-    cmd = "[#{Time.now.to_i}] PROCESS_SERVICE_CHECK_RESULT;#{host[0]};#{service[0]};#{level};"
+    cmd = "[#{Time.now.to_i}] PROCESS_SERVICE_CHECK_RESULT;#{host};#{service};#{level};"
     if annotation
-      cmd += "#{annotation[0]}: "
+      cmd += "#{annotation}: "
     end
-    cmd += "#{event.source}: "
     # In the multi-line case, escape the newlines for the nagios command file
-    cmd += event.message.gsub("\n", "\\n")
+    cmd += (event["message"] || "<no message>").gsub("\n", "\\n")
 
     @logger.debug("Opening nagios command file", :commandfile => @commandfile,
                   :nagios_command => cmd)

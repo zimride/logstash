@@ -8,62 +8,43 @@ class LogStash::Outputs::Stdout < LogStash::Outputs::Base
   end
 
   config_name "stdout"
-  plugin_status "stable"
+  milestone 3
+  
+  default :codec, "line"
 
   # Enable debugging. Tries to pretty-print the entire event object.
-  config :debug, :validate => :boolean
+  config :debug, :validate => :boolean, :default => false
 
   # Debug output format: ruby (default), json
-  config :debug_format, :default => "ruby", :validate => ["ruby", "json", "dots"]
+  config :debug_format, :default => "ruby", :validate => ["ruby", "dots"], :deprecated => true
 
   # The message to emit to stdout.
-  config :message, :validate => :string, :default => "%{@timestamp} %{@source}: %{@message}"
+  config :message, :validate => :string, :default => "%{+yyyy-MM-dd'T'HH:mm:ss.SSSZ} %{host}: %{message}"
 
   public
   def register
     @print_method = method(:ap) rescue method(:p)
+
     if @debug
+      require "logstash/codecs/rubydebug"
+      require "logstash/codecs/dots"
       case @debug_format
-        when "ruby"
-          define_singleton_method(:receive) do |event|
-            return unless output?(event)
-            if event == LogStash::SHUTDOWN
-              finished
-              return
-            end
-            @print_method.call(event.to_hash)
-          end
-        when "json"
-          define_singleton_method(:receive) do |event|
-            return unless output?(event)
-            if event == LogStash::SHUTDOWN
-              finished
-              return
-            end
-            puts event.to_json
-          end
-        when "dots"
-          define_singleton_method(:receive) do |event|
-            return unless output?(event)
-            if event == LogStash::SHUTDOWN
-              finished
-              return
-            end
-            $stdout.write(".")
-          end
-        else
-          raise "unknown debug_format #{@debug_format}, this should never happen"
-      end
-    else
-      define_singleton_method(:receive) do |event|
-        return unless output?(event)
-        if event == LogStash::SHUTDOWN
-          finished
-          return
-        end
-        puts event.sprintf(@message)
+        when "ruby"; @codec = LogStash::Codecs::RubyDebug.new
+        when "dots"; @codec = LogStash::Codecs::Dots.new
       end
     end
+    @codec.on_event do |event|
+      $stdout.write(event)
+    end
+  end
+
+  def receive(event)
+    return unless output?(event)
+    if event == LogStash::SHUTDOWN
+      finished
+      return
+    end
+    @codec.encode(event)
   end
 
 end # class LogStash::Outputs::Stdout

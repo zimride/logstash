@@ -5,7 +5,7 @@ require "logstash/namespace"
 # corresponding GELF levels.
 class LogStash::Filters::Gelfify < LogStash::Filters::Base
   config_name "gelfify"
-  plugin_status "beta"
+  milestone 2
 
   SYSLOG_LEVEL_MAP = {
     0 => 3, # Emergency => FATAL
@@ -28,15 +28,15 @@ class LogStash::Filters::Gelfify < LogStash::Filters::Base
     return unless event.type == @type
     @logger.debug("GELFIFY FILTER: received event of type #{event.type}")
 
-    if event.fields.include?("severity")
-      sev = event.fields["severity"].to_i rescue nil
-      if sev.to_s != event.fields["severity"].to_s
+    if event.include?("severity")
+      sev = event["severity"].to_i rescue nil
+      if sev.to_s != event["severity"].to_s
         # severity isn't convertable to an integer.
         # "foo".to_i => 0, which would default to EMERG.
         @logger.debug("GELFIFY FILTER: existing severity field is not an int")
       elsif SYSLOG_LEVEL_MAP[sev]
         @logger.debug("GELFIFY FILTER: Severity level successfully mapped")
-        event.fields["GELF_severity"] = SYSLOG_LEVEL_MAP[sev]
+        event["GELF_severity"] = SYSLOG_LEVEL_MAP[sev]
       else
         @logger.debug("GELFIFY FILTER: unknown severity #{sev}")
       end

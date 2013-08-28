@@ -26,11 +26,12 @@ Gem::Specification.new do |gem|
   gem.add_runtime_dependency "i18n"               #(MIT license)
 
   # Web dependencies
-  gem.add_runtime_dependency "ftw", ["~> 0.0.29"] #(Apache 2.0 license)
+  gem.add_runtime_dependency "ftw", ["~> 0.0.34"] #(Apache 2.0 license)
   gem.add_runtime_dependency "haml"               #(MIT license)
   gem.add_runtime_dependency "rack"               #(MIT license)
   gem.add_runtime_dependency "sass"               #(MIT license)
   gem.add_runtime_dependency "sinatra"            #(MIT license)
+  gem.add_runtime_dependency "mime-types"         #(GPL 2.0)
 
   # Input/Output/Filter dependencies
   #TODO Can these be optional?
@@ -38,14 +39,14 @@ Gem::Specification.new do |gem|
   gem.add_runtime_dependency "aws-sdk"                          #{Apache 2.0 license}
   gem.add_runtime_dependency "heroku"                           #(MIT license)
   gem.add_runtime_dependency "addressable"                      #(Apache 2.0 license)
-  gem.add_runtime_dependency "bunny", [">= 0.9.0.pre9"]         #(MIT license)
+  gem.add_runtime_dependency "extlib", ["0.9.16"]               #(MIT license)
   gem.add_runtime_dependency "ffi"                              #(LGPL-3 license)
   gem.add_runtime_dependency "ffi-rzmq", ["1.0.0"]              #(MIT license)
   gem.add_runtime_dependency "filewatch", ["0.5.1"]             #(BSD license)
   gem.add_runtime_dependency "gelfd", ["0.2.0"]                 #(Apache 2.0 license)
   gem.add_runtime_dependency "gelf", ["1.3.2"]                  #(MIT license)
   gem.add_runtime_dependency "gmetric", ["0.1.3"]               #(MIT license)
-  gem.add_runtime_dependency "jls-grok", ["0.10.10"]            #(BSD license)
+  gem.add_runtime_dependency "jls-grok", ["0.10.11"]            #(BSD license)
   gem.add_runtime_dependency "mail"                             #(MIT license)
   gem.add_runtime_dependency "mongo"                            #(Apache 2.0 license)
   gem.add_runtime_dependency "metriks"                          #(MIT license)
@@ -53,7 +54,7 @@ Gem::Specification.new do |gem|
   gem.add_runtime_dependency "redis"                            #(MIT license)
   gem.add_runtime_dependency "riak-client", ["1.0.3"]           #(Apache 2.0 license)
   gem.add_runtime_dependency "riemann-client", ["0.2.1"]        #(MIT license)
-  gem.add_runtime_dependency "statsd-ruby", ["0.3.0"]           #(MIT license)
+  gem.add_runtime_dependency "statsd-ruby", ["1.2.0"]           #(MIT license)
   gem.add_runtime_dependency "uuidtools"                        # For generating amqp queue names (Apache 2.0 license)
   gem.add_runtime_dependency "xml-simple"                       #(ruby license?)
   gem.add_runtime_dependency "xmpp4r", ["0.5"]                  #(ruby license)
@@ -68,10 +69,12 @@ Gem::Specification.new do |gem|
   gem.add_runtime_dependency "varnish-rb"                       #(MIT license)
   gem.add_runtime_dependency "mail"                             #(MIT license)
   gem.add_runtime_dependency "rbnacl"                           #(MIT license)
+  gem.add_runtime_dependency "sequel"                           #(MIT license)
+  gem.add_runtime_dependency "jdbc-sqlite3"                      #(MIT license)
 
   if RUBY_PLATFORM == 'java'
     gem.platform = RUBY_PLATFORM
-    gem.add_runtime_dependency "jruby-elasticsearch", ["0.0.14"]  #(BSD license)
+    gem.add_runtime_dependency "jruby-elasticsearch", ["0.0.15"]  #(BSD license)
     gem.add_runtime_dependency "jruby-httpclient"                 #(Apache 2.0 license)
     gem.add_runtime_dependency "bouncy-castle-java", "1.5.0147"   #(MIT license)
     gem.add_runtime_dependency "jruby-openssl", "0.8.7"           #(CPL/GPL/LGPL license)
@@ -82,6 +85,12 @@ Gem::Specification.new do |gem|
     gem.add_runtime_dependency "excon"    #(MIT license)
     gem.add_runtime_dependency "mysql2"   # For input drupal_dblog (MIT license)
     gem.add_runtime_dependency "msgpack"  #(Apache 2.0 license)
+  end
+
+  if RUBY_PLATFORM != 'java'
+    gem.add_runtime_dependency "bunny",       ["~> 0.9.8"]  #(MIT license)
+  else
+    gem.add_runtime_dependency "hot_bunnies", ["~> 2.0.0.pre9"] #(MIT license)
   end
 
   if RUBY_VERSION >= '1.9.1'

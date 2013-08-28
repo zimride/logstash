@@ -7,32 +7,40 @@ require "socket" # for Socket.gethostname
 # By default, each event is assumed to be one line. If you
 # want to join lines, you'll want to use the multiline filter.
 class LogStash::Inputs::Stdin < LogStash::Inputs::Base
-
   config_name "stdin"
+  milestone 3
 
-  plugin_status "beta"
+  default :codec, "line"
 
   public
   def register
     @host = Socket.gethostname
   end # def register
 
-  def run(queue)
+  def run(queue) 
     while true
       begin
-        e = to_event($stdin.readline.chomp, "stdin://#{@host}/")
-      rescue EOFError => ex
-        # stdin closed, finish
+        # Based on some testing, there is no way to interrupt an IO.sysread nor
+        # IO.select call in JRuby. Bummer :(
+        data = $stdin.sysread(16384)
+        @codec.decode(data) do |event|
+          event["source"] = @host
+          event["type"] = @type if @type
+          @tags && @tags.each { |t| event.tag(t) }
+          queue << event
+        end
+      rescue EOFError, LogStash::ShutdownSignal
+        # stdin closed or a requested shutdown
         break
       end
-      queue << e if e
     end # while true
     finished
   end # def run
 
   public
   def teardown
-    $stdin.close
+    @logger.debug("stdin shutting down.")
+    $stdin.close rescue nil
     finished
   end # def teardown
 end # class LogStash::Inputs::Stdin

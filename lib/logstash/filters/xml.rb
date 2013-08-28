@@ -6,27 +6,7 @@ require "logstash/namespace"
 class LogStash::Filters::Xml < LogStash::Filters::Base
 
   config_name "xml"
-  plugin_status "experimental"
-
-  # Config for xml to hash is:
-  #
-  #     source_field => destination_field
-  #
-  # XML in the value of the source field will be expanded into a
-  # datastructure in the "dest" field. Note: if the "dest" field
-  # already exists, it will be overridden.
-  #
-  # For example, if you have the whole xml document in your @message field:
-  #
-  #     filter {
-  #       xml {
-  #         "@message" => "doc"
-  #       }
-  #     }
-  #
-  # The above would parse the xml from @message and store the resulting
-  # document into the 'doc' field.
-  config /[A-Za-z0-9_-]+/, :validate => :string, :deprecated => true
+  milestone 1
 
   # Config for xml to hash is:
   #
@@ -36,7 +16,7 @@ class LogStash::Filters::Xml < LogStash::Filters::Base
   #
   #     filter {
   #       xml {
-  #         source => "@message"
+  #         source => "message"
   #       }
   #     }
   #
@@ -85,94 +65,75 @@ class LogStash::Filters::Xml < LogStash::Filters::Base
   def register
     require "nokogiri"
     require "xmlsimple"
-    @xml = {}
-
-    #TODO(electrical): Will be removed when its fully deprecated
-    @config.each do |field, dest|
-      next if (RESERVED + ["xpath", "store_xml", "source", "target"]).member?(field)
-      @logger.warn("#{self.class.config_name}: You used a deprecated setting '#{field} => #{dest}'. You should use 'source => \"#{field}\"' and 'target => \"#{dest}\"'")
-      @xml[field] = dest
-    end
-
-    if @source
-      @xml[@source] = @target
-    end
 
   end # def register
 
   public
   def filter(event)
     return unless filter?(event)
-
     matched = false
 
     @logger.debug("Running xml filter", :event => event)
 
-    @xml.each do |key, dest|
-      if event.fields[key]
-        if event.fields[key].is_a?(String)
-          event.fields[key] = [event.fields[key]]
-        end
+    return unless event.include?(@source)
 
-        if event.fields[key].length > 1
-          @logger.warn("XML filter only works on fields of length 1",
-                       :key => key, :value => event.fields[key])
-          next
-        end
+    value = event[@source]
 
-        raw = event.fields[key].first
-
-        # for some reason, an empty string is considered valid XML
-        next if raw.strip.length == 0
-
-        if @xpath
-          begin
-            doc = Nokogiri::XML(raw)
-          rescue => e
-            event.tags << "_xmlparsefailure"
-            @logger.warn("Trouble parsing xml", :key => key, :raw => raw,
-                         :exception => e, :backtrace => e.backtrace)
-            next
-          end
-
-          @xpath.each do |xpath_src, xpath_dest|
-            nodeset = doc.xpath(xpath_src)
-
-            # If asking xpath for a String, like "name(/*)", we get back a
-            # String instead of a NodeSet.  We normalize that here.
-            normalized_nodeset = nodeset.kind_of?(Nokogiri::XML::NodeSet) ? nodeset : [nodeset]
-
-            normalized_nodeset.each do |value|
-              # some XPath functions return empty arrays as string
-              if value.is_a?(Array)
-                next if value.length == 0
-              end
-
-              unless value.nil?
-                matched = true
-                event[xpath_dest] ||= []
-                event[xpath_dest] << value.to_s
-              end
-            end # XPath.each
-          end # @xpath.each
-        end # if @xpath
-
-        if @store_xml
-          begin
-            event[dest] = XmlSimple.xml_in(raw)
-            matched = true
-          rescue => e
-            event.tags << "_xmlparsefailure"
-            @logger.warn("Trouble parsing xml with XmlSimple", :key => key, :raw => raw,
-                          :exception => e, :backtrace => e.backtrace)
-            next
-          end
-        end # if @store_xml
-
-        filter_matched(event) if matched
-      end # @xml.each
+    if value.is_a?(Array) && value.length > 1
+      @logger.warn("XML filter only works on fields of length 1",
+                   :source => @source, :value => value)
+      return
     end
 
+    # Do nothing with an empty string.
+    return if value.strip.length == 0
+
+    if @xpath
+      begin
+        doc = Nokogiri::XML(value)
+      rescue => e
+        p :failed => value
+        event.tag("_xmlparsefailure")
+        @logger.warn("Trouble parsing xml", :source => @source, :value => value,
+                     :exception => e, :backtrace => e.backtrace)
+        return
+      end
+
+      @xpath.each do |xpath_src, xpath_dest|
+        nodeset = doc.xpath(xpath_src)
+
+        # If asking xpath for a String, like "name(/*)", we get back a
+        # String instead of a NodeSet.  We normalize that here.
+        normalized_nodeset = nodeset.kind_of?(Nokogiri::XML::NodeSet) ? nodeset : [nodeset]
+
+        normalized_nodeset.each do |value|
+          # some XPath functions return empty arrays as string
+          if value.is_a?(Array)
+            return if value.length == 0
+          end
+
+          unless value.nil?
+            matched = true
+            event[xpath_dest] ||= []
+            event[xpath_dest] << value.to_s
+          end
+        end # XPath.each
+      end # @xpath.each
+    end # if @xpath
+
+    if @store_xml
+      begin
+        event[@target] = XmlSimple.xml_in(value)
+        matched = true
+      rescue => e
+        event.tag("_xmlparsefailure")
+        @logger.warn("Trouble parsing xml with XmlSimple", :source => @source,
+                     :value => value, :exception => e, :backtrace => e.backtrace)
+        return
+      end
+    end # if @store_xml
+
+    filter_matched(event) if matched
     @logger.debug("Event after xml filter", :event => event)
   end # def filter
 end # class LogStash::Filters::Xml
