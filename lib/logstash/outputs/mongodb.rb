@@ -53,14 +53,16 @@ class LogStash::Outputs::Mongodb < LogStash::Outputs::Base
 
     begin
       if @isodate
-        # the mongodb driver wants time values as a ruby Time object.
-        # set the @timestamp value of the document to a ruby Time object, then.
+        # The mongodb driver will turn ruby Time object into mongodb date time.
+        # Given that the logstash event already uses a Time object for the
+        # timesamp we're all set.
         document = event.to_hash
       else
+        # Set the @timestamp value of the document to a string.
         document = event.to_hash.merge("@timestamp" => event["@timestamp"].to_json)
       end
       if @generateId
-        document['_id'] = BSON::ObjectId.new(nil, event.ruby_timestamp)
+        document['_id'] = BSON::ObjectId.new(nil, event.timestamp)
       end
       @db.collection(event.sprintf(@collection)).insert(document)
     rescue => e
