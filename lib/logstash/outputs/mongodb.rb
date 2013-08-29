@@ -37,7 +37,10 @@ class LogStash::Outputs::Mongodb < LogStash::Outputs::Base
     conn = uriParsed.connection({})
     if uriParsed.auths.length > 0
       uriParsed.auths.each do |auth|
-        conn.add_auth(auth['db_name'], auth['username'], auth['password'])
+        if auth['db_name'] and auth['username'] and auth['password']
+            conn.add_auth(auth['db_name'], auth['username'],
+                          auth['password'], auth['db_name'])
+        end
       end
       conn.apply_saved_authentication()
     end
