@@ -26,6 +26,9 @@ class LogStash::Outputs::Http < LogStash::Outputs::Base
   # format is `headers => ["X-My-Header", "%{source}"]
   config :headers, :validate => :hash
 
+  # Number of seconds to wait after failure before retrying
+  config :retry_delay, :validate => :number, :default => 3, :required => false
+
   # Content type
   #
   # If not specified, this defaults to the following:
@@ -124,12 +127,25 @@ class LogStash::Outputs::Http < LogStash::Outputs::Base
       #puts request.body
       response = @agent.execute(request)
 
+      # Timeouts also come through with a status code of 500.
+      if (500 .. 599).include? response.status
+        raise
+      elsif (400 .. 499).include? response.status
+        @logger.warn("Invalid request status: #{response.status}", :request => request, :response => response, :exception => e, :stacktrace => e.backtrace)
+        return
+      end
+
       # Consume body to let this connection be reused
       rbody = ""
       response.read_body { |c| rbody << c }
-      #puts rbody
     rescue Exception => e
-      @logger.warn("Unhandled exception", :request => request, :response => response, :exception => e, :stacktrace => e.backtrace)
+      if response && (500 .. 599).include?(response.status)
+        @logger.warn("Request status: #{response.status}", :request => request, :response => response, :exception => e, :stacktrace => e.backtrace)
+        sleep @retry_delay
+        retry
+      else
+        @logger.warn("Unhandled exception", :request => request, :response => response, :exception => e, :stacktrace => e.backtrace)
+      end
     end
   end # def receive
 
