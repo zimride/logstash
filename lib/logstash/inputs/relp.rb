@@ -39,11 +39,12 @@ class LogStash::Inputs::Relp < LogStash::Inputs::Base
   end # def register
 
   private
-  def relp_stream(relpserver,socket,output_queue,event_source)
+  def relp_stream(relpserver,socket,output_queue,client_address)
     loop do
       frame = relpserver.syslog_read(socket)
       @codec.decode(frame["message"]) do |event|
-        event["source"] = event_source
+        decorate(event)
+        event["host"] = client_address
         output_queue << event
       end
 
@@ -68,7 +69,7 @@ class LogStash::Inputs::Relp < LogStash::Inputs::Base
             peer = socket.peer
             @logger.debug("Relp Connection to #{peer} created")
           begin
-            relp_stream(rs,socket, output_queue,"relp://#{peer}")
+            relp_stream(rs,socket, output_queue, peer)
           rescue Relp::ConnectionClosed => e
             @logger.debug("Relp Connection to #{peer} Closed")
           rescue Relp::RelpError => e

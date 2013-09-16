@@ -48,22 +48,22 @@ class LogStash::Inputs::Log4j < LogStash::Inputs::Base
   end # def register
 
   private
-  def handle_socket(socket, output_queue, event_source)
+  def handle_socket(socket, output_queue)
     begin
       # JRubyObjectInputStream uses JRuby class path to find the class to de-serialize to
       ois = JRubyObjectInputStream.new(java.io.BufferedInputStream.new(socket.to_inputstream))
       loop do
         # NOTE: event_raw is org.apache.log4j.spi.LoggingEvent
         log4j_obj = ois.readObject
-        event = LogStash::Event.new("message" => log4j_obj.getRenderedMessage,
-                                    "source" => event_source)
-        event["source_host"] = socket.peer
-        event["source_path"] = log4j_obj.getLoggerName
+        event = LogStash::Event.new("message" => log4j_obj.getRenderedMessage)
+        decorate(event)
+        event["host"] = socket.peer
+        event["path"] = log4j_obj.getLoggerName
         event["priority"] = log4j_obj.getLevel.toString
         event["logger_name"] = log4j_obj.getLoggerName
         event["thread"] = log4j_obj.getThreadName
         event["class"] = log4j_obj.getLocationInformation.getClassName
-        event["file"] = log4j_obj.getLocationInformation.getFileName + ":" + log4j_obj.getLocationInformation.getLineNumber,
+        event["file"] = log4j_obj.getLocationInformation.getFileName + ":" + log4j_obj.getLocationInformation.getLineNumber
         event["method"] = log4j_obj.getLocationInformation.getMethodName
         event["NDC"] = log4j_obj.getNDC if log4j_obj.getNDC
         event["stack_trace"] = log4j_obj.getThrowableStrRep.to_a.join("\n") if log4j_obj.getThrowableInformation
@@ -114,7 +114,7 @@ class LogStash::Inputs::Log4j < LogStash::Inputs::Base
           s.instance_eval { class << self; include ::LogStash::Util::SocketPeer end }
           @logger.debug("Accepted connection", :client => s.peer,
                         :server => "#{@host}:#{@port}")
-          handle_socket(s, output_queue, "tcp://#{@host}:#{@port}/client/#{s.peer}")
+          handle_socket(s, output_queue)
         end # Thread.start
       end # loop
     else
@@ -122,7 +122,7 @@ class LogStash::Inputs::Log4j < LogStash::Inputs::Base
         client_socket = TCPSocket.new(@host, @port)
         client_socket.instance_eval { class << self; include ::LogStash::Util::SocketPeer end }
         @logger.debug("Opened connection", :client => "#{client_socket.peer}")
-        handle_socket(client_socket, output_queue, "tcp://#{client_socket.peer}/server")
+        handle_socket(client_socket, output_queue)
       end # loop
     end
   end # def run

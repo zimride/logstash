@@ -38,18 +38,20 @@ grammar LogStashConfig
     <LogStash::Config::AST::Plugins>
   end
 
-  rule plugin 
-    name _ "{" 
+  rule plugin
+    name _ "{"
       _
-      attributes:( attribute (whitespace _ attribute)*)? 
+      attributes:( attribute (whitespace _ attribute)*)?
       _
     "}"
     <LogStash::Config::AST::Plugin>
   end
 
   rule name
-    [A-Za-z0-9_-]+
-    <LogStash::Config::AST::Name>
+    (
+      ([A-Za-z0-9_-]+ <LogStash::Config::AST::Name>)
+      / string
+    )
   end
 
   rule attribute
@@ -59,7 +61,6 @@ grammar LogStashConfig
 
   rule value
     plugin / bareword / string / number / array / hash
-    #<LogStash::Config::AST::Value>
   end
 
   rule array_value
@@ -71,11 +72,16 @@ grammar LogStashConfig
     <LogStash::Config::AST::Bareword>
   end
 
+  rule double_quoted_string
+    ( '"' ( '\"' / !'"' . )* '"' <LogStash::Config::AST::String>)
+  end
+
+  rule single_quoted_string
+    ( "'" ( "\\'" / !"'" . )* "'" <LogStash::Config::AST::String>)
+  end
+
   rule string
-    ( 
-      ( '"' ( '\"' / !'"' . )* '"'  <LogStash::Config::AST::String>)
-      / ( "'" ( "\\'" / !"'" . )* "'"  <LogStash::Config::AST::String> )
-    )
+    double_quoted_string / single_quoted_string
   end
 
   rule regexp
@@ -83,26 +89,26 @@ grammar LogStashConfig
   end
 
   rule number
-    "-"? [0-9]+ ("." [0-9]*)? 
+    "-"? [0-9]+ ("." [0-9]*)?
     <LogStash::Config::AST::Number>
   end
 
   rule array
-    "[" 
-    _ 
+    "["
+    _
     (
       value (_ "," _ value)*
     )?
-    _ 
+    _
     "]"
     <LogStash::Config::AST::Array>
   end
 
   rule hash
-    "{" 
-      _ 
+    "{"
+      _
       hashentries?
-      _ 
+      _
     "}"
     <LogStash::Config::AST::Hash>
   end
@@ -113,7 +119,7 @@ grammar LogStashConfig
   end
 
   rule hashentry
-    name:(number / bareword / string) _ "=>" _ value 
+    name:(number / bareword / string) _ "=>" _ value
     <LogStash::Config::AST::HashEntry>
   end
 
@@ -146,10 +152,38 @@ grammar LogStashConfig
   rule expression
     (
         ("(" _ condition _ ")")
-      / ("!" _ condition)
-      / (rvalue _ comparison _ rvalue)
-      / (rvalue)
+      / negative_expression
+      / in_expression
+      / not_in_expression
+      / compare_expression
+      / regexp_expression
+      / rvalue
     ) <LogStash::Config::AST::Expression>
+  end
+
+  rule negative_expression
+    (
+        ("!" _ "(" _ condition _ ")")
+      / ("!" _ selector)
+    ) <LogStash::Config::AST::NegativeExpression>
+  end
+
+  rule in_expression
+    rvalue _ in_operator _ rvalue
+    <LogStash::Config::AST::InExpression>
+  end
+
+  rule not_in_expression
+    rvalue _ not_in_operator _ rvalue
+    <LogStash::Config::AST::NotInExpression>
+  end
+
+  rule in_operator
+    "in"
+  end
+
+  rule not_in_operator
+    "not " _ "in"
   end
 
   rule rvalue
@@ -157,10 +191,10 @@ grammar LogStashConfig
   end
 
   rule method_call
-      method _ "(" _ 
-        ( 
-          rvalue ( _ "," _ rvalue )* 
-        )? 
+      method _ "(" _
+        (
+          rvalue ( _ "," _ rvalue )*
+        )?
       _ ")"
     <LogStash::Config::AST::MethodCall>
   end
@@ -169,10 +203,25 @@ grammar LogStashConfig
     bareword
   end
 
-  rule comparison
-    ("==" / "!=" / "<=" / ">=" / "<" / ">" / "=~" / "!~" / "in")
+  rule compare_expression
+    rvalue _ compare_operator _ rvalue
+    <LogStash::Config::AST::ComparisonExpression>
+  end
+  
+  rule compare_operator 
+    ("==" / "!=" / "<=" / ">=" / "<" / ">") 
     <LogStash::Config::AST::ComparisonOperator>
   end
+
+  rule regexp_expression
+    rvalue _  regexp_operator _ (string / regexp)
+    <LogStash::Config::AST::RegexpExpression>
+  end
+
+  rule regexp_operator
+    ("=~" / "!~") <LogStash::Config::AST::RegExpOperator>
+  end
+
 
   rule boolean_operator
     ("and" / "or" / "xor" / "nand")
@@ -188,5 +237,5 @@ grammar LogStashConfig
     "[" [^\], ]+ "]"
     <LogStash::Config::AST::SelectorElement>
   end
-  
+
 end

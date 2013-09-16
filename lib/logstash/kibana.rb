@@ -80,13 +80,26 @@ module LogStash::Kibana
         #end
       end
 
-      args = opts.parse(args)
+      begin
+        args = opts.parse(args)
+      rescue SystemExit
+        # if you ask for --help, optparse will exit.
+        # capture it and return normally
+        return []
+      end
 
       @thread = Thread.new do
         Cabin::Channel.get.info("Starting web server", :settings => settings)
-        Rack::Handler::FTW.run(LogStash::Kibana::App.new,
+        ftw = Rack::Handler::FTW.new(LogStash::Kibana::App.new,
                                :Host => settings.address,
                                :Port => settings.port)
+        trap_id = Stud::trap("INT") do
+          puts "Stopping web..."
+          ftw.stop rescue nil
+          raise SystemExit
+        end
+
+        ftw.run
       end
 
       return args
@@ -94,7 +107,7 @@ module LogStash::Kibana
 
     public
     def wait
-      @thread.join
+      @thread.join if @thread
       return 0
     end # def wait
   end

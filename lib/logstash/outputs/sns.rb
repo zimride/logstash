@@ -16,7 +16,7 @@ require "logstash/plugin_mixins/aws_config"
 #  * sns - If no ARN is found in the configuration file, this will be used as
 #  the ARN to publish.
 #  * sns_subject - The subject line that should be used.
-#  Optional. The "%{source}" will be used if not present and truncated at
+#  Optional. The "%{host}" will be used if not present and truncated at
 #  MAX_SUBJECT_SIZE_IN_CHARACTERS.
 #  * sns_message - The message that should be
 #  sent. Optional. The event serialzed as JSON will be used if not present and
@@ -104,7 +104,7 @@ class LogStash::Outputs::Sns < LogStash::Outputs::Base
     # Truncate only the message if the JSON structure is too large.
     if json_size > MAX_MESSAGE_SIZE_IN_BYTES
       # TODO: Utilize `byteslice` in JRuby 1.7: http://jira.codehaus.org/browse/JRUBY-5547
-      event.message = event.message.slice(0, (event.message.bytesize - (json_size - MAX_MESSAGE_SIZE_IN_BYTES)))
+      event["message"] = event["message"].slice(0, (event["message"].bytesize - (json_size - MAX_MESSAGE_SIZE_IN_BYTES)))
     end
 
     event.to_json

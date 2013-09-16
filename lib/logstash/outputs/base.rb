@@ -15,15 +15,15 @@ class LogStash::Outputs::Base < LogStash::Plugin
   # act on messages with the same type. See any input plugin's "type"
   # attribute for more.
   # Optional.
-  config :type, :validate => :string, :default => "", :deprecated => true
+  config :type, :validate => :string, :default => "", :deprecated => "You can achieve this same behavior with the new conditionals, like: `if [type] == \"sometype\" { %PLUGIN% { ... } }`."
 
   # Only handle events with all of these tags.  Note that if you specify
   # a type, the event must also match that type.
   # Optional.
-  config :tags, :validate => :array, :default => [], :deprecated => true
+  config :tags, :validate => :array, :default => [], :deprecated => "You can achieve similar behavior with the new conditionals, like: `if \"sometag\" in [tags] { %PLUGIN% { ... } }`"
 
   # Only handle events without any of these tags. Note this check is additional to type and tags.
-  config :exclude_tags, :validate => :array, :default => [], :deprecated => true
+  config :exclude_tags, :validate => :array, :default => [], :deprecated => "You can achieve similar behavior with the new conditionals, like: `if !(\"sometag\" in [tags]) { %PLUGIN% { ... } }`"
 
   # The codec used for output data
   config :codec, :validate => :codec, :default => "plain"
@@ -59,21 +59,22 @@ class LogStash::Outputs::Base < LogStash::Plugin
   def output?(event)
     if !@type.empty?
       if event.type != @type
-        @logger.debug? and @logger.debug(["Dropping event because type doesn't match #{@type}", event])
+        @logger.debug? and @logger.debug(["outputs/#{self.class.name}: Dropping event because type doesn't match #{@type}", event])
         return false
       end
     end
 
     if !@tags.empty?
-      if !@tags.send(@include_method) {|tag| event.tags.include?(tag)}
-        @logger.debug? and @logger.debug("Dropping event because tags don't match #{@tags.inspect}", event)
+      return false if !event["tags"]
+      if !@tags.send(@include_method) {|tag| event["tags"].include?(tag)}
+        @logger.debug? and @logger.debug("outputs/#{self.class.name}: Dropping event because tags don't match #{@tags.inspect}", event)
         return false
       end
     end
 
-    if !@exclude_tags.empty?
-      if @exclude_tags.send(@exclude_method) {|tag| event.tags.include?(tag)}
-        @logger.debug? and @logger.debug("Dropping event because tags contains excluded tags: #{exclude_tags.inspect}", event)
+    if !@exclude_tags.empty? && event["tags"]
+      if @exclude_tags.send(@exclude_method) {|tag| event["tags"].include?(tag)}
+        @logger.debug? and @logger.debug("outputs/#{self.class.name}: Dropping event because tags contains excluded tags: #{exclude_tags.inspect}", event)
         return false
       end
     end

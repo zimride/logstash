@@ -34,7 +34,6 @@ class LogStash::Inputs::Udp < LogStash::Inputs::Base
 
   public
   def run(output_queue)
-    LogStash::Util::set_thread_name("input|udp|#{@port}")
     begin
       # udp server
       udp_listener(output_queue)
@@ -59,7 +58,8 @@ class LogStash::Inputs::Udp < LogStash::Inputs::Base
     loop do
       payload, client = @udp.recvfrom(@buffer_size)
       @codec.decode(payload) do |event|
-        event["source"] = "#{client[3]}:#{client[1]}"
+        decorate(event)
+        event["host"] = client[3]
         output_queue << event
       end
     end

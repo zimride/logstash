@@ -21,9 +21,9 @@ class LogStash::Outputs::Librato < LogStash::Outputs::Base
   # Send data to Librato as a gauge
   #
   # Example:
-  #   ["value", "%{bytes_recieved}", "source", "%{source}", "name", "apache_bytes"]
+  #   ["value", "%{bytes_recieved}", "source", "%{host}", "name", "apache_bytes"]
   # Additionally, you can override the `measure_time` for the event. Must be a unix timestamp:
-  #   ["value", "%{bytes_recieved}", "source", "%{source}", "name", "apache_bytes","measure_time", "%{my_unixtime_field}]
+  #   ["value", "%{bytes_recieved}", "source", "%{host}", "name", "apache_bytes","measure_time", "%{my_unixtime_field}]
   # Default is to use the event's timestamp
   config :gauge, :validate => :hash, :default => {}
 
@@ -31,21 +31,21 @@ class LogStash::Outputs::Librato < LogStash::Outputs::Base
   # Send data to Librato as a counter
   #
   # Example:
-  #   ["value", "1", "source", "%{source}", "name", "messages_received"]
+  #   ["value", "1", "source", "%{host}", "name", "messages_received"]
   # Additionally, you can override the `measure_time` for the event. Must be a unix timestamp:
-  #   ["value", "1", "source", "%{source}", "name", "messages_received", "measure_time", "%{my_unixtime_field}"]
+  #   ["value", "1", "source", "%{host}", "name", "messages_received", "measure_time", "%{my_unixtime_field}"]
   # Default is to use the event's timestamp
   config :counter, :validate => :hash, :default => {}
 
   # Annotations
   # Registers an annotation with Librato
   # The only required field is `title` and `name`.
-  # `start_time` and `end_time` will be set to `event.unix_timestamp`
+  # `start_time` and `end_time` will be set to `event["@timestamp"].to_i`
   # You can add any other optional annotation values as well.
   # All values will be passed through `event.sprintf`
   #
   # Example:
-  #   ["title":"Logstash event on %{source}", "name":"logstash_stream"]
+  #   ["title":"Logstash event on %{host}", "name":"logstash_stream"]
   # or
   #   ["title":"Logstash event", "description":"%{message}", "name":"logstash_stream"]
   config :annotation, :validate => :hash, :default => {}
@@ -79,7 +79,7 @@ class LogStash::Outputs::Librato < LogStash::Outputs::Base
       g_hash.each do |k,v|
         g_hash[k] = v.to_f if k=="value"
       end
-      g_hash['measure_time'] = event.unix_timestamp.to_i unless g_hash['measure_time']
+      g_hash['measure_time'] = event["@timestamp"].to_i unless g_hash['measure_time']
       @logger.warn("Gauges hash", :data => g_hash)
       metrics_event['gauges'] = Array.new 
       metrics_event['gauges'] << g_hash
@@ -90,7 +90,7 @@ class LogStash::Outputs::Librato < LogStash::Outputs::Base
       c_hash.each do |k,v|
         c_hash[k] = v.to_f if k=="value"
       end
-      c_hash['measure_time'] = event.unix_timestamp.to_i unless c_hash['measure_time']
+      c_hash['measure_time'] = event["@timestamp"].to_i unless c_hash['measure_time']
       @logger.warn("Counters hash", :data => c_hash)
       metrics_event['counters'] = Array.new
       metrics_event['counters'] << c_hash
@@ -126,8 +126,8 @@ class LogStash::Outputs::Librato < LogStash::Outputs::Base
       request = Net::HTTP::Post.new(annotation_path)
       request.basic_auth(@account_id, @api_token)
       annotation_event.delete('name')
-      annotation_event['start_time'] = event.unix_timestamp.to_i unless annotation_event['start_time']
-      annotation_event['end_time'] = event.unix_timestamp.to_i unless annotation_event['end_time']
+      annotation_event['start_time'] = event["@timestamp"].to_i unless annotation_event['start_time']
+      annotation_event['end_time'] = event["@timestamp"].to_i unless annotation_event['end_time']
       annotation_hash['annotations'] << annotation_event
       @logger.warn("Annotation event", :data => annotation_event)
 

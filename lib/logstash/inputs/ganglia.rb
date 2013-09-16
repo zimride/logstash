@@ -36,7 +36,6 @@ class LogStash::Inputs::Ganglia < LogStash::Inputs::Base
   def run(output_queue)
     # udp server
     Thread.new do
-      LogStash::Util::set_thread_name("input|ganglia|udp")
       begin
         udp_listener(output_queue)
       rescue => e
@@ -67,11 +66,10 @@ class LogStash::Inputs::Ganglia < LogStash::Inputs::Base
 
     loop do
       packet, client = @udp.recvfrom(9000)
-      # Ruby uri sucks, so don't use it.
-      source = "ganglia://#{client[3]}/"
-
+      # TODO(sissel): make this a codec...
       e = parse_packet(packet,source)
       unless e.nil?
+        e["host"] = client[3] # the IP address
         output_queue << e
       end
     end
@@ -117,9 +115,6 @@ class LogStash::Inputs::Ganglia < LogStash::Inputs::Base
       return nil unless data
 
       event=LogStash::Event.new
-      #event['@timestamp'] = Time.now.to_i
-      event["source"] = source
-      event["type"] = @type
 
       data["program"] = "ganglia"
       event["log_host"] = data["hostname"]

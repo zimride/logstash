@@ -25,7 +25,6 @@ class LogStash::Pipeline
     begin
       eval(code)
     rescue => e
-      p e.backtrace[1]
       raise
     end
 
@@ -151,7 +150,7 @@ class LogStash::Pipeline
     begin
       plugin.run(@input_to_filter)
     rescue LogStash::ShutdownSignal
-      plugin.teardown
+      return
     rescue => e
       if @logger.debug?
         @logger.error(I18n.t("logstash.pipeline.worker-error-debug",
@@ -167,6 +166,10 @@ class LogStash::Pipeline
       sleep 1
       retry
     end
+  rescue LogStash::ShutdownSignal
+    # nothing
+  ensure
+    plugin.teardown
   end # def inputworker
 
   def filterworker

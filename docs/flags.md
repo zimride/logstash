@@ -31,25 +31,13 @@ default. </dd>
 <dd> A colon-delimted path to find other logstash plugins in </dd>
 </dl>
 
-Note: Plugins can provide addition command-line flags, such as the
-[grok](filters/grok) filter. Plugin-specific flags always start with the plugin
-name, like --grok-foo.
 
-## Web UI
-
-The logstash web interface has the following flags (also try using the '--help'
-flag)
+## Web
 
 <dl>
-<dt> --log FILE </dt>
-<dd> Log to a given path. Default is stdout. </dd>
-<dt> --address ADDRESS </dt>
-<dd> Address on which to start webserver. Default is 0.0.0.0. </dd>
-<dt> --port PORT </dt>
-<dd> Port on which to start webserver. Default is 9292. </dd>
-<dt> -B, --elasticsearch-bind-host ADDRESS </dt>
-<dd> Address on which to bind elastic search node. </dd>
-<dt> -b, --backend URL </dt>
-<dd>The backend URL to use. Default is elasticsearch:/// (assumes multicast discovery). 
-You can specify elasticsearch://[host][:port]/[clustername]</dd>
+<dt> -a, --address ADDRESS </dt>
+<dd>Address on which to start webserver. Default is 0.0.0.0.</dd>
+<dt> -p, --port PORT</dt>
+<dd>Port on which to start webserver. Default is 9292.</dd>
 </dl>
+

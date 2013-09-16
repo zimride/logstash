@@ -38,11 +38,6 @@ class LogStash::Inputs::Irc < LogStash::Inputs::Base
   # "#logstash".
   config :channels, :validate => :array, :required => true
 
-
-  def initialize(*args)
-    super(*args)
-  end # def initialize
-
   public
   def register
     require "cinch"
@@ -76,6 +71,7 @@ class LogStash::Inputs::Irc < LogStash::Inputs::Base
       msg = @irc_queue.pop
       if msg.user
         @codec.decode(msg.message) do |event|
+          decorate(event)
           event["channel"] = msg.channel.to_s
           event["nick"] = msg.user.nick
           event["server"] = "#{@host}:#{@port}"

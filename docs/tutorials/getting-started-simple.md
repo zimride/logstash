@@ -38,45 +38,46 @@ The inputs are your log files. The output will be elasticsearch. The config
 format should be simple to read and write. The bottom of this document includes
 links for further reading (config, etc) if you want to learn more.
 
-Here is the simplest Logstash configuration you can work with:
+Here is a simple Logstash configuration:
 
-    input { stdin { type => "stdin-type"}}
-    output { stdout { debug => true debug_format => "json"}}
+    input { stdin { } }
+    output { stdout { codec => rubydebug } }
 
 Save this to a file called `logstash-simple.conf` and run it like so:
 
     java -jar logstash-%VERSION%-flatjar.jar agent -f logstash-simple.conf
 
-After a few seconds, type something in the console where you started logstash. Maybe `test`.
-You should get some output like so:
+After a few seconds, type something in the console where you started logstash.
+Maybe `hello`.  You should get some output like so:
 
     {
-      "@source":"stdin://jvstratusmbp.local/",
-     "@type":"stdin",
-     "@tags":[],
-     "@fields":{},
-     "@timestamp":"2012-07-02T05:20:16.092000Z",
-     "@source_host":"jvstratusmbp.local",
-     "@source_path":"/",
-     "@message":"test"
+      "message"    => "hello",
+      "@timestamp" => "2013-09-04T00:24:21.707Z",
+      "@version"   => "1",
+      "host"       => "pork"
     }
 
 If everything is okay, let's move on to a more complex version:
 
 ### Saving to Elasticsearch
-The recommended storage engine for Logstash is Elasticsearch. If you're running Logstash from the jar file or via jruby, you can use an embedded version of Elasticsearch for storage.
+
+The recommended storage engine for Logstash is Elasticsearch. If you're running
+Logstash from the jar file or via jruby, you can use an embedded version of
+Elasticsearch for storage.
 
 Using our configuration above, let's change it to look like so:
 
-    input { stdin { type => "stdin-type"}}
+    input { stdin { type => example } }
     output { 
-      stdout { debug => true debug_format => "json"}
+      stdout { codec => rubydebug }
       elasticsearch { embedded => true }
     }
 
-We're going to KEEP the existing configuration but add a second output - embedded Elasticsearch.
-Restart your Logstash (CTRL-C and rerun the java command). Depending on the horsepower of your machine, this could take some time.
-Logstash needs to extract the jar contents to a working directory AND start an instance of Elasticsearch.
+We're going to KEEP the existing configuration but add a second output -
+embedded Elasticsearch.  Restart your Logstash (CTRL-C and rerun the java
+command). Depending on the horsepower of your machine, this could take some
+time.  Logstash needs to extract the jar contents to a working directory AND
+start an instance of Elasticsearch.
 
 Let's do our test again by simply typing `test`. You should get the same output to the console.
 Now let's verify that Logstash stored the message in Elasticsearch:
@@ -92,27 +93,20 @@ You should get back some output like so:
 
 This means Logstash created a new index based on today's date. Likely your data is in there as well:
 
-`curl -s -XGET http://localhost:9200/logstash-2012.07.02/_search?q=@type:stdin`
+`curl -gs -XGET "http://localhost:9200/logstash-*/_search?pretty&q=type:example"`
 
 This will return a rather large JSON output. We're only concerned with a subset:
 
-    "_index": "logstash-2012.07.02",
-    "_type": "stdin",
-    "_id": "JdRaI5R6RT2do_WhCYM-qg",
-    "_score": 0.30685282,
-    "_source": {
-        "@source": "stdin://dist/",
-        "@type": "stdin",
-        "@tags": [
-            "tag1",
-            "tag2"
-        ],
-        "@fields": {},
-        "@timestamp": "2012-07-02T06:17:48.533000Z",
-        "@source_host": "dist",
-        "@source_path": "/",
-        "@message": "test"
-    }
+      "_index" : "logstash-2013.09.07",
+      "_type" : "logs",
+      "_id" : "iARTN3MtQ-Kaf_x0fZaFwQ",
+      "_score" : 1.4054651, "_source" : {
+        "message": "fizzle",
+        "@timestamp": "2013-09-07T00:42:23.453Z",
+        "@version": "1",
+        "type": "example",
+        "host": "pork"
+      }
 
 Your output may look a little different.
 The reason we're going about it this way is to make absolutely sure that we have all the bits working before adding more complexity.
@@ -124,16 +118,27 @@ Hop on the logstash IRC channel or mailing list and ask for help with that outpu
 Obviously this is fairly useless this way. Let's add the final step and test with the builtin logstash web ui:
 
 ### Testing the webui
-We've already proven that events can make it into Elasticsearch. However using curl for everything is less than ideal.
-Logstash ships with a built-in web interface. It's fairly spartan but it's a good proof-of-concept. Let's restart our logstash process with an additional option:
+
+We've already proven that events can make it into Elasticsearch. However using
+curl for everything is less than ideal.
+
+Logstash ships with a built-in web interface (called Kibana). Let's restart our
+logstash process with an additional option:
 
     java -jar logstash-%VERSION%-flatjar.jar agent -f logstash-simple.conf -- web
 
-One important thing to note is that the `web` option is actually its own set of commmand-line options. We're essentially starting two programs in one.
-This is worth remembering as you move to an external Elasticsearch server. The options you specify in your logstash.conf have no bearing on the web ui. It has its own options.
+One important thing to note is that the `web` option is actually its own set of
+commmand-line options. We're essentially starting two programs in one.  This is
+worth remembering as you move to an external Elasticsearch server. The options
+you specify in your logstash.conf have no bearing on the web ui. It has its own
+options.
 
-Again, the reason for testing without the web interface is to ensure that the logstash agent itself is getting events into Elasticsearch. This is different than the Logstash web ui being able to read them.
-As before we'll need to wait a bit for everything to spin up. You can verify that everything is running (assuming you aren't running with any `-v` options) by checking the output of `netstat`:
+Again, the reason for testing without the web interface is to ensure that the
+logstash agent itself is getting events into Elasticsearch. This is different
+than the Logstash web ui being able to read them.  As before, we'll need to
+wait a bit for everything to spin up. You can verify that everything is running
+(assuming you aren't running with any `-v` options) by checking the output of
+`netstat`:
 
     netstat -napt | grep -i LISTEN
 

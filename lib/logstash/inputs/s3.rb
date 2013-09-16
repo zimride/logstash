@@ -53,7 +53,6 @@ class LogStash::Inputs::S3 < LogStash::Inputs::Base
 
   public
   def register
-    LogStash::Util::set_thread_name("input|s3|#{bucket}");
     @logger.info("Registering s3 input", :bucket => @bucket)
 
     if @credentials.nil?
@@ -165,7 +164,6 @@ class LogStash::Inputs::S3 < LogStash::Inputs::Base
   private
   def process_log(queue, key)
 
-    source = "s3://#{bucket}/#{key}"
     object = @s3bucket.objects[key]
     tmp = Dir.mktmpdir("logstash-")
     begin
@@ -175,7 +173,7 @@ class LogStash::Inputs::S3 < LogStash::Inputs::Base
           s3file.write(chunk)
         end
       end
-      process_local_log(queue, filename, source)
+      process_local_log(queue, filename)
       unless @backup_to_bucket.nil?
         backup_object = @backup_bucket.objects[key]
         backup_object.write(Pathname.new(filename))
@@ -192,12 +190,11 @@ class LogStash::Inputs::S3 < LogStash::Inputs::Base
   end # def process_log
 
   private
-  def process_local_log(queue, filename, source)
+  def process_local_log(queue, filename)
 
     metadata = {
       :version => nil,
       :format => nil,
-      :source => source
     }
     File.open(filename) do |file|
       if filename.end_with?('.gz')
@@ -229,13 +226,13 @@ class LogStash::Inputs::S3 < LogStash::Inputs::Base
       end
     else
       @codec.decode(line) do |event|
+        decorate(event)
         unless metadata[:version].nil?
           event["cloudfront_version"] = metadata[:version]
         end
         unless metadata[:format].nil?
           event["cloudfront_fields"] = metadata[:format]
         end
-        event["source"] = metadata[:source]
         queue << event
       end
     end

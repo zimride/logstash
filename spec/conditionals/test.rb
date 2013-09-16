@@ -138,6 +138,9 @@ describe "conditionals" do
         if [missing] in [alsomissing] {
           mutate { add_tag => "shouldnotexist" }
         }
+        if !("foo" in ["hello", "world"]) {
+          mutate { add_tag => "shouldexist" }
+        }
       }
     CONFIG
 
@@ -147,6 +150,30 @@ describe "conditionals" do
       insist { subject["tags"] }.include?("string in field")
       insist { subject["tags"] }.include?("field in list")
       reject { subject["tags"] }.include?("shouldnotexist")
+      insist { subject["tags"] }.include?("shouldexist")
+    end
+  end
+
+  describe "the 'not in' operator" do
+    config <<-CONFIG
+      filter {
+        if "foo" not in "baz" { mutate { add_tag => "baz" } }
+        if "foo" not in "foo" { mutate { add_tag => "foo" } }
+        if !("foo" not in "foo") { mutate { add_tag => "notfoo" } }
+        if "foo" not in [somelist] { mutate { add_tag => "notsomelist" } } 
+        if "one" not in [somelist] { mutate { add_tag => "somelist" } }
+      }
+    CONFIG
+
+    sample("foo" => "foo", "somelist" => [ "one", "two" ], "foobar" => "foobar", "greeting" => "hello world", "tags" => [ "fancypantsy" ]) do
+      # verify the original exists
+      insist { subject["tags"] }.include?("fancypantsy")
+
+      insist { subject["tags"] }.include?("baz")
+      reject { subject["tags"] }.include?("foo")
+      insist { subject["tags"] }.include?("notfoo")
+      insist { subject["tags"] }.include?("notsomelist")
+      reject { subject["tags"] }.include?("somelist")
     end
   end
 
@@ -193,6 +220,102 @@ describe "conditionals" do
       sample("apple") { insist { subject["tags"] }.include?("success") }
       sample("sample") { insist { subject["tags"] }.include?("failure") }
       sample("some sample") { insist { subject["tags"] }.include?("failure") }
+    end
+
+  end
+
+  describe "negated expressions" do
+    conditional "!([message] == 'sample')" do
+      sample("sample") { reject { subject["tags"] }.include?("success") }
+      sample("different") { reject { subject["tags"] }.include?("failure") }
+    end 
+
+    conditional "!([message] != 'sample')" do
+      sample("sample") { reject { subject["tags"] }.include?("failure") }
+      sample("different") { reject { subject["tags"] }.include?("success") }
+    end 
+
+    conditional "!([message] < 'sample')" do
+      sample("apple") { reject { subject["tags"] }.include?("success") }
+      sample("zebra") { reject { subject["tags"] }.include?("failure") }
+    end
+
+    conditional "!([message] > 'sample')" do
+      sample("zebra") { reject { subject["tags"] }.include?("success") }
+      sample("apple") { reject { subject["tags"] }.include?("failure") }
+    end
+
+    conditional "!([message] <= 'sample')" do
+      sample("apple") { reject { subject["tags"] }.include?("success") }
+      sample("zebra") { reject { subject["tags"] }.include?("failure") }
+      sample("sample") { reject { subject["tags"] }.include?("success") }
+    end
+
+    conditional "!([message] >= 'sample')" do
+      sample("zebra") { reject { subject["tags"] }.include?("success") }
+      sample("sample") { reject { subject["tags"] }.include?("success") }
+      sample("apple") { reject { subject["tags"] }.include?("failure") }
+    end
+
+    conditional "!([message] =~ /sample/)" do
+      sample("apple") { reject { subject["tags"] }.include?("failure") }
+      sample("sample") { reject { subject["tags"] }.include?("success") }
+      sample("some sample") { reject { subject["tags"] }.include?("success") }
+    end
+
+    conditional "!([message] !~ /sample/)" do
+      sample("apple") { reject { subject["tags"] }.include?("success") }
+      sample("sample") { reject { subject["tags"] }.include?("failure") }
+      sample("some sample") { reject { subject["tags"] }.include?("failure") }
+    end
+
+  end
+
+  describe "value as an expression" do
+    # testing that a field has a value should be true.
+    conditional "[message]" do
+      sample("apple") { insist { subject["tags"] }.include?("success") }
+      sample("sample") { insist { subject["tags"] }.include?("success") }
+      sample("some sample") { insist { subject["tags"] }.include?("success") }
+    end
+
+    # testing that a missing field has a value should be false.
+    conditional "[missing]" do
+      sample("apple") { insist { subject["tags"] }.include?("failure") }
+      sample("sample") { insist { subject["tags"] }.include?("failure") }
+      sample("some sample") { insist { subject["tags"] }.include?("failure") }
+    end
+  end
+
+  describe "logic operators" do
+    describe "and" do
+      conditional "[message] and [message]" do
+        sample("whatever") { insist { subject["tags"] }.include?("success") }
+      end
+      conditional "[message] and ![message]" do
+        sample("whatever") { insist { subject["tags"] }.include?("failure") }
+      end
+      conditional "![message] and [message]" do
+        sample("whatever") { insist { subject["tags"] }.include?("failure") }
+      end
+      conditional "![message] and ![message]" do
+        sample("whatever") { insist { subject["tags"] }.include?("failure") }
+      end
+    end
+
+    describe "or" do
+      conditional "[message] or [message]" do
+        sample("whatever") { insist { subject["tags"] }.include?("success") }
+      end
+      conditional "[message] or ![message]" do
+        sample("whatever") { insist { subject["tags"] }.include?("success") }
+      end
+      conditional "![message] or [message]" do
+        sample("whatever") { insist { subject["tags"] }.include?("success") }
+      end
+      conditional "![message] or ![message]" do
+        sample("whatever") { insist { subject["tags"] }.include?("failure") }
+      end
     end
   end
 end

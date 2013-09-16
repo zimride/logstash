@@ -3,9 +3,18 @@ module Kernel
   alias_method :require_JRUBY_6970_hack, :require
 
   def require(path)
+    old_load_path = nil
+
     if path =~ /^jar:file:.+!.+/
       path = path.gsub(/^jar:/, "")
       puts "JRUBY-6970: require(#{path})" if ENV["REQUIRE_DEBUG"] == "1"
+    end
+
+    # Work around slow openssl load times in flatjar. (LOGSTASH-1223)
+    if __FILE__ =~ /^(?:jar:)?file:.+!.+/ && path == "openssl"
+      old_load_path = $LOAD_PATH.dup
+      # For some reason loading openssl with an empty LOAD_PATH is fast.
+      $LOAD_PATH.clear
     end
 
     # JRUBY-7065
@@ -17,6 +26,8 @@ module Kernel
       require "logstash/JRUBY-6970-openssl"
     end
     return rc
+  ensure
+    $LOAD_PATH.replace(old_load_path) if old_load_path
   end
 end
 
@@ -65,7 +76,7 @@ class File
       # 'expand_path' on "/" will return "C:/" on windows.
       # So like.. we don't want that because technically this
       # is the root of the jar, not of a disk.
-      puts :fix_jar_path => ["#{jar}!#{resource.gsub(/^[A-Za-z]:/, "")}"]
+      #puts :fix_jar_path => ["#{jar}!#{resource.gsub(/^[A-Za-z]:/, "")}"]
       return "#{jar}!#{resource.gsub(/^[A-Za-z]:/, "")}"
     else
       return "#{jar}!#{resource}"

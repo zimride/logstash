@@ -51,15 +51,14 @@ class LogStash::Inputs::Syslog < LogStash::Inputs::Base
 
   public
   def register
-    @grok_filter = LogStash::Filters::Grok.new({
-      "type"    => [@config["type"]],
-      "pattern" => ["<%{POSINT:priority}>%{SYSLOGLINE}"],
-    })
+    @grok_filter = LogStash::Filters::Grok.new(
+      "overwrite" => "message",
+      "match" => { "message" => "<%{POSINT:priority}>%{SYSLOGLINE}" },
+    )
 
-    @date_filter = LogStash::Filters::Date.new({
-      "type"          => [@config["type"]],
+    @date_filter = LogStash::Filters::Date.new(
       "match" => [ "timestamp", "MMM  d HH:mm:ss", "MMM dd HH:mm:ss", "ISO8601"]
-    })
+    )
 
     @grok_filter.register
     @date_filter.register
@@ -71,7 +70,6 @@ class LogStash::Inputs::Syslog < LogStash::Inputs::Base
   def run(output_queue)
     # udp server
     udp_thr = Thread.new do
-      LogStash::Util::set_thread_name("input|syslog|udp")
       begin
         udp_listener(output_queue)
       rescue => e
@@ -86,7 +84,6 @@ class LogStash::Inputs::Syslog < LogStash::Inputs::Base
 
     # tcp server
     tcp_thr = Thread.new do
-      LogStash::Util::set_thread_name("input|syslog|tcp")
       begin
         tcp_listener(output_queue)
       rescue => e
@@ -119,9 +116,9 @@ class LogStash::Inputs::Syslog < LogStash::Inputs::Base
     loop do
       payload, client = @udp.recvfrom(9000)
       # Ruby uri sucks, so don't use it.
-      source = "syslog://#{client[3]}/"
       @codec.decode(payload) do |event|
-        event["source"] = client[3]
+        decorate(event)
+        event["host"] = client[3]
         syslog_relay(event)
         output_queue << event
       end
@@ -143,16 +140,11 @@ class LogStash::Inputs::Syslog < LogStash::Inputs::Base
         ip, port = client.peeraddr[3], client.peeraddr[1]
         @logger.info("new connection", :client => "#{ip}:#{port}")
         LogStash::Util::set_thread_name("input|syslog|tcp|#{ip}:#{port}}")
-        if ip.include?(":") # ipv6
-          source = "syslog://[#{ip}]/"
-        else
-          source = "syslog://#{ip}/"
-        end
-
         begin
           client.each do |line|
             @codec.decode(line) do |event|
-              event["source"] = ip
+              decorate(event)
+              event["host"] = ip
               syslog_relay(event)
               output_queue << event
             end
@@ -201,7 +193,7 @@ class LogStash::Inputs::Syslog < LogStash::Inputs::Base
   def syslog_relay(event)
     @grok_filter.filter(event)
 
-    if !event["tags"].include?("_grokparsefailure")
+    if event["tags"].nil? || !event["tags"].include?("_grokparsefailure")
       # Per RFC3164, priority = (facility * 8) + severity
       #                       = (facility << 3) & (severity)
       priority = event["priority"].first.to_i rescue 13

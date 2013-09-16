@@ -36,7 +36,8 @@ Gem::Specification.new do |gem|
   # Input/Output/Filter dependencies
   #TODO Can these be optional?
   gem.add_runtime_dependency "awesome_print"                    #(MIT license)
-  gem.add_runtime_dependency "aws-sdk"                          #{Apache 2.0 license}
+  gem.add_runtime_dependency "aws-sdk"                          #{Apache 2.0 license}  
+  gem.add_runtime_dependency "google-api-client"                #{Apache 2.0 license}
   gem.add_runtime_dependency "heroku"                           #(MIT license)
   gem.add_runtime_dependency "addressable"                      #(Apache 2.0 license)
   gem.add_runtime_dependency "extlib", ["0.9.16"]               #(MIT license)
@@ -46,6 +47,7 @@ Gem::Specification.new do |gem|
   gem.add_runtime_dependency "gelfd", ["0.2.0"]                 #(Apache 2.0 license)
   gem.add_runtime_dependency "gelf", ["1.3.2"]                  #(MIT license)
   gem.add_runtime_dependency "gmetric", ["0.1.3"]               #(MIT license)
+  gem.add_runtime_dependency "jiralicious", ["0.2.2"]		#(MIT license)
   gem.add_runtime_dependency "jls-grok", ["0.10.11"]            #(BSD license)
   gem.add_runtime_dependency "mail"                             #(MIT license)
   gem.add_runtime_dependency "mongo"                            #(Apache 2.0 license)
@@ -70,7 +72,8 @@ Gem::Specification.new do |gem|
   gem.add_runtime_dependency "mail"                             #(MIT license)
   gem.add_runtime_dependency "rbnacl"                           #(MIT license)
   gem.add_runtime_dependency "sequel"                           #(MIT license)
-  gem.add_runtime_dependency "jdbc-sqlite3"                      #(MIT license)
+  gem.add_runtime_dependency "jdbc-sqlite3"                     #(MIT license)
+  gem.add_runtime_dependency "bindata", [">= 1.5.0"]            #(ruby license)
 
   if RUBY_PLATFORM == 'java'
     gem.platform = RUBY_PLATFORM
@@ -88,9 +91,9 @@ Gem::Specification.new do |gem|
   end
 
   if RUBY_PLATFORM != 'java'
-    gem.add_runtime_dependency "bunny",       ["~> 0.9.8"]  #(MIT license)
+    gem.add_runtime_dependency "bunny",       ["~> 0.10.4"]  #(MIT license)
   else
-    gem.add_runtime_dependency "hot_bunnies", ["~> 2.0.0.pre9"] #(MIT license)
+    gem.add_runtime_dependency "hot_bunnies", ["~> 2.0.0.pre12"] #(MIT license)
   end
 
   if RUBY_VERSION >= '1.9.1'
@@ -102,6 +105,6 @@ Gem::Specification.new do |gem|
   gem.add_runtime_dependency "mocha"            #(MIT license)
   gem.add_runtime_dependency "shoulda"          #(MIT license)
   gem.add_runtime_dependency "rspec"            #(MIT license)
-  gem.add_runtime_dependency "insist", "0.0.8"  #(Apache 2.0 license)
+  gem.add_runtime_dependency "insist", "1.0.0"  #(Apache 2.0 license)
   gem.add_runtime_dependency "rumbster"         # For faking smtp in email tests (Apache 2.0 license)
 end

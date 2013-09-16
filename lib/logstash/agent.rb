@@ -40,6 +40,10 @@ class LogStash::Agent < Clamp::Command
     :multivalued => true,
     :attribute_name => :plugin_paths
 
+  option ["-t", "--configtest"], :flag,
+    I18n.t("logstash.agent.flag.configtest"),
+    :attribute_name => :config_test
+
   # Emit a warning message.
   def warn(message)
     # For now, all warnings are fatal.
@@ -50,6 +54,12 @@ class LogStash::Agent < Clamp::Command
   def fail(message)
     raise LogStash::ConfigurationError, message
   end # def fail
+
+  def report(message)
+    # Print to stdout just in case we're logging to a file
+    puts message
+    @logger.log(message) if log_file
+  end
 
   # Run the agent. This method is invoked after clamp parses the
   # flags given to this program.
@@ -64,12 +74,18 @@ class LogStash::Agent < Clamp::Command
       return 0
     end
 
+    # temporarily send logs to stdout as well if a --log is specified
+    # and stdout appears to be a tty
+    show_startup_errors = log_file && STDOUT.tty?
+
+    if show_startup_errors
+      stdout_logs = @logger.subscribe(STDOUT)
+    end
     configure
 
     # You must specify a config_string or config_path
     if config_string.nil? && config_path.nil?
-      puts help
-      fail(I18n.t("logstash.agent.missing-configuration"))
+      fail(help + "\n", I18n.t("logstash.agent.missing-configuration"))
     end
 
     if @config_path
@@ -91,6 +107,12 @@ class LogStash::Agent < Clamp::Command
       fail("Configuration problem.")
     end
 
+    # Stop now if we are only asking for a config test.
+    if config_test?
+      report "Configuration OK"
+      return
+    end
+
     # Make SIGINT shutdown the pipeline.
     trap_id = Stud::trap("INT") do
       @logger.warn(I18n.t("logstash.agent.interrupted"))
@@ -104,17 +126,22 @@ class LogStash::Agent < Clamp::Command
 
     pipeline.configure("filter-workers", filter_workers)
 
+    @logger.unsubscribe(stdout_logs) if show_startup_errors
+
     # TODO(sissel): Get pipeline completion status.
     pipeline.run
     return 0
   rescue LogStash::ConfigurationError => e
-    puts I18n.t("logstash.agent.error", :error => e)
+    @logger.unsubscribe(stdout_logs) if show_startup_errors
+    report I18n.t("logstash.agent.error", :error => e)
     return 1
   rescue => e
-    puts I18n.t("oops", :error => e)
-    puts e.backtrace if @logger.debug? || $DEBUGLIST.include?("stacktrace")
+    @logger.unsubscribe(stdout_logs) if show_startup_errors
+    report I18n.t("oops", :error => e)
+    report e.backtrace if @logger.debug? || $DEBUGLIST.include?("stacktrace")
     return 1
   ensure
+    @log_fd.close if @log_fd
     Stud::untrap("INT", trap_id) unless trap_id.nil?
   end # def execute
 
@@ -152,6 +179,7 @@ class LogStash::Agent < Clamp::Command
       end
     end
 
+    $stdout.write("Elasticsearch: ");
     org.elasticsearch.Version::main([])
   end # def show_version_elasticsearch
 
@@ -200,19 +228,20 @@ class LogStash::Agent < Clamp::Command
 
     end
 
-    if !log_file.nil?
+    if log_file
       # TODO(sissel): Implement file output/rotation in Cabin.
       # TODO(sissel): Catch exceptions, report sane errors.
       begin
-        file = File.new(path, "a")
+        @log_fd.close if @log_fd
+        @log_fd = File.new(path, "a")
       rescue => e
         fail(I18n.t("logstash.agent.configuration.log_file_failed",
                     :path => path, :error => e))
       end
 
-      puts "Sending all output to #{path}."
+      puts "Sending logstash logs to #{path}."
       @logger.unsubscribe(@logger_subscription) if @logger_subscription
-      @logger_subscription = @logger.subscribe(file)
+      @logger_subscription = @logger.subscribe(@log_fd)
     else
       @logger.subscribe(STDOUT)
     end
@@ -263,4 +292,5 @@ class LogStash::Agent < Clamp::Command
     end
     return config
   end # def load_config
+
 end # class LogStash::Agent

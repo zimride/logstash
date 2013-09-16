@@ -43,13 +43,18 @@ require "logstash/codecs/base"
 #     
 # This says that any line starting with whitespace belongs to the previous line.
 #
-# Another example is C line continuations (backslash). Here's how to do that:
+# Another example is to merge lines not starting with a date up to the previous
+# line..
 #
-#     filter {
-#       multiline {
-#         type => "somefiletype "
-#         pattern => "\\$"
-#         what => "next"
+#     input {
+#       file {
+#         path => "/var/log/someapp.log"
+#         codec => multiline {
+#           # Grok pattern names are valid! :)
+#           pattern => "^%{TIMESTAMP_ISO8601} "
+#           negate => true
+#           what => previous
+#         }
 #       }
 #     }
 #     
@@ -88,6 +93,10 @@ class LogStash::Codecs::Multiline < LogStash::Codecs::Base
   #
   # This only affects "plain" format logs since json is UTF-8 already.
   config :charset, :validate => ::Encoding.name_list, :default => "UTF-8"
+
+  # Tag multiline events with a given tag. This tag will only be added
+  # to events that actually have multiple lines in them.
+  config :multiline_tag, :validate => :string, :default => "multiline"
 
   public
   def register
@@ -151,7 +160,11 @@ class LogStash::Codecs::Multiline < LogStash::Codecs::Base
 
   def flush(&block)
     if @buffer.any?
-      yield LogStash::Event.new("@timestamp" => @time, "message" => @buffer.join("\n"))
+      event = LogStash::Event.new("@timestamp" => @time, "message" => @buffer.join("\n"))
+      # Tag multiline events
+      event.tag @multiline_tag if @multiline_tag && @buffer.size > 1
+
+      yield event
       @buffer = []
     end
   end

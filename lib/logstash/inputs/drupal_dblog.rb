@@ -205,6 +205,7 @@ class LogStash::Inputs::DrupalDblog < LogStash::Inputs::Base
         results.each do |row|
           event = build_event(row)
           if event
+            decorate(event)
             output_queue << event
             lastWid = row['wid'].to_s
           end
@@ -311,7 +312,7 @@ class LogStash::Inputs::DrupalDblog < LogStash::Inputs::Base
       "@timestamp" => timestamp,
       "tags" => [],
       "type" => "watchdog",
-      "source" => @sitename,
+      "site" => @sitename,
       "message" => msg
     }.merge(row)
 

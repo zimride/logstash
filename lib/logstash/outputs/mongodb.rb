@@ -62,7 +62,7 @@ class LogStash::Outputs::Mongodb < LogStash::Outputs::Base
         document = event.to_hash.merge("@timestamp" => event["@timestamp"].to_json)
       end
       if @generateId
-        document['_id'] = BSON::ObjectId.new(nil, event.timestamp)
+        document['_id'] = BSON::ObjectId.new(nil, event["@timestamp"])
       end
       @db.collection(event.sprintf(@collection)).insert(document)
     rescue => e

@@ -65,7 +65,6 @@ class LogStash::Inputs::File < LogStash::Inputs::Base
     require "addressable/uri"
     require "filewatch/tail"
     require "digest/md5"
-    LogStash::Util::set_thread_name("input|file|#{path.join(":")}")
     @logger.info("Registering file input", :path => @path)
 
     @tail_config = {
@@ -126,11 +125,11 @@ class LogStash::Inputs::File < LogStash::Inputs::Base
     hostname = %x[hostname -f].strip
 
     @tail.subscribe do |path, line|
-      source = "file://#{hostname}/#{path.gsub("\\","/")}"
       @logger.debug? && @logger.debug("Received line", :path => path, :line => line)
       @codec.decode(line) do |event|
-        event["source"] = source
-        event["type"] = @type if @type
+        decorate(event)
+        event["host"] = hostname
+        event["path"] = path
         queue << event
       end
     end

@@ -54,6 +54,7 @@ class LogStash::Runner
   def main(args)
     require "logstash/util"
     require "stud/trap"
+    require "stud/task"
     @startup_interruption_trap = Stud::trap("INT") { puts "Interrupted"; exit 0 }
 
     LogStash::Util::set_thread_name(self.class.name)
@@ -69,7 +70,7 @@ class LogStash::Runner
     args = [nil] if args.empty?
 
     @runners = []
-    while !args.empty?
+    while args != nil && !args.empty?
       args = run(args)
     end
 
@@ -90,7 +91,15 @@ class LogStash::Runner
   def run(args)
     command = args.shift
     commands = {
-      "version" => lambda { emit_version(args) },
+      "version" => lambda do
+        require "logstash/agent"
+        agent_args = ["--version"]
+        if args.include?("--verbose") 
+          agent_args << "--verbose"
+        end
+        LogStash::Agent.run($0, agent_args)
+        return []
+      end,
       "web" => lambda do
         # Give them kibana.
         require "logstash/kibana"
@@ -170,25 +179,20 @@ class LogStash::Runner
       "agent" => lambda do
         require "logstash/agent"
         # Hack up a runner
-        runner = Class.new do
-          def initialize(args)
-            @args = args
-          end
-          def run
-            #@thread = Thread.new do
-              @result = LogStash::Agent.run($0, @args)
-            #end
-          end
-          def wait
-            #@thread.join
-            return @result
-          end
+        agent = LogStash::Agent.new($0)
+        begin
+          agent.parse(args)
+        rescue Clamp::UsageError => e
+          # If 'too many arguments' then give the arguments to
+          # the next command. Otherwise it's a real error.
+          raise if e.message != "too many arguments"
+          remaining = agent.remaining_arguments
         end
 
-        agent = runner.new(args)
-        agent.run
-        #@runners << agent
-        return []
+        #require "pry"
+        #binding.pry
+        @runners << Stud::Task.new { agent.execute }
+        return remaining
       end
     } # commands
 
@@ -198,7 +202,10 @@ class LogStash::Runner
       if command.nil?
         $stderr.puts "No command given"
       else
-        $stderr.puts "No such command #{command.inspect}"
+        if !%w(--help -h help).include?(command)
+          # Emit 'no such command' if it's not someone asking for help.
+          $stderr.puts "No such command #{command.inspect}"
+        end
       end
       $stderr.puts "Usage: logstash <command> [command args]"
       $stderr.puts "Run a command with the --help flag to see the arguments."
@@ -217,13 +224,6 @@ class LogStash::Runner
     return args
   end # def run
 
-  def emit_version(args)
-    require "logstash/version"
-    puts "logstash #{LOGSTASH_VERSION}"
-
-    # '-v' can be the only argument, end processing args now.
-    return []
-  end # def emit_version
 end # class LogStash::Runner
 
 if $0 == __FILE__

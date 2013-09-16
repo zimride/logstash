@@ -33,7 +33,6 @@ class LogStash::Inputs::Gelf < LogStash::Inputs::Base
   # * event["message"] becomes full_message
   #   if no full_message, use event["message"] becomes short_message
   #   if no short_message, event["message"] is the raw json input
-  # * host + file to event["source"]
   config :remap, :validate => :boolean, :default => true
 
   public
@@ -50,7 +49,6 @@ class LogStash::Inputs::Gelf < LogStash::Inputs::Base
 
   public
   def run(output_queue)
-    LogStash::Util::set_thread_name("input|gelf")
     begin
       # udp server
       udp_listener(output_queue)
@@ -83,12 +81,13 @@ class LogStash::Inputs::Gelf < LogStash::Inputs::Base
       end
 
       event = LogStash::Event.new(JSON.parse(data))
-      event["source"] = client[3]
+      event["host"] = client[3]
       if event["timestamp"].is_a?(Numeric)
         event["@timestamp"] = Time.at(event["timestamp"]).gmtime
         event.remove("timestamp")
       end
       remap_gelf(event) if @remap
+      decorate(event)
       output_queue << event
     end
   rescue LogStash::ShutdownSignal

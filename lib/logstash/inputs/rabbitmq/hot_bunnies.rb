@@ -95,6 +95,11 @@ class LogStash::Inputs::RabbitMQ
         :auto_delete => @auto_delete,
         :exclusive   => @exclusive,
         :arguments   => @arguments)
+
+      # exchange binding is optional for the input
+      if @exchange
+        @q.bind(@exchange, :routing_key => @key)
+      end
     end
 
     def consume
@@ -104,7 +109,7 @@ class LogStash::Inputs::RabbitMQ
       # in an @ivar even though we use a blocking version of HB::Queue#subscribe
       @consumer = @q.build_consumer(:block => true) do |metadata, data|
         @codec.decode(data) do |event|
-          event["source"] = @connection_url
+          decorate(event)
           @output_queue << event if event
           @ch.ack(metadata.delivery_tag) if @ack
         end

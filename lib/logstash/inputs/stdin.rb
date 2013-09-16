@@ -24,9 +24,8 @@ class LogStash::Inputs::Stdin < LogStash::Inputs::Base
         # IO.select call in JRuby. Bummer :(
         data = $stdin.sysread(16384)
         @codec.decode(data) do |event|
-          event["source"] = @host
-          event["type"] = @type if @type
-          @tags && @tags.each { |t| event.tag(t) }
+          decorate(event)
+          event["host"] = @host
           queue << event
         end
       rescue EOFError, LogStash::ShutdownSignal

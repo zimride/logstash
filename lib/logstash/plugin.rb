@@ -143,8 +143,7 @@ class LogStash::Plugin
 
     return klass
   rescue LoadError => e
-    puts e
     raise LogStash::PluginLoadingError,
-      I18n.t("logstash.pipeline.plugin-loading-error", :type => type, :name => name, :path => path)
+      I18n.t("logstash.pipeline.plugin-loading-error", :type => type, :name => name, :path => path, :error => e.to_s)
   end # def load
 end # class LogStash::Plugin
