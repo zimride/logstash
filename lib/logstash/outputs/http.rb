@@ -115,8 +115,9 @@ class LogStash::Outputs::Http < LogStash::Outputs::Base
         request.body = encode(evt)
       end
 
-      response = Net::HTTP.start(uri.hostname, uri.port) do |http|
-        http.request(request)
+      response = Net::HTTP.start(uri.hostname, uri.port,
+        :use_ssl => uri.scheme == 'https') do |http|
+          http.request(request)
       end
 
       if (500 .. 599).include? response.code.to_i
