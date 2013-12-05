@@ -1,3 +1,4 @@
+# encoding: utf-8
 class LogStash::Inputs::RabbitMQ
   # HotBunnies-based implementation for JRuby
   module HotBunniesImpl
@@ -14,7 +15,8 @@ class LogStash::Inputs::RabbitMQ
         :vhost => @vhost,
         :host  => @host,
         :port  => @port,
-        :user  => @user
+        :user  => @user,
+        :automatic_recovery => false
       }
       @settings[:pass]      = @password.value if @password
       @settings[:tls]       = @ssl if @ssl
@@ -111,8 +113,8 @@ class LogStash::Inputs::RabbitMQ
         @codec.decode(data) do |event|
           decorate(event)
           @output_queue << event if event
-          @ch.ack(metadata.delivery_tag) if @ack
         end
+	@ch.ack(metadata.delivery_tag) if @ack
       end
       @q.subscribe_with(@consumer, :manual_ack => @ack, :block => true)
     end

@@ -1,7 +1,9 @@
+# encoding: utf-8
 require "logstash/inputs/base"
 require "logstash/namespace"
 
 require "pathname"
+require "socket" # for Socket.gethostname
 
 # Stream events from files.
 #
@@ -46,7 +48,7 @@ class LogStash::Inputs::File < LogStash::Inputs::Base
   # sincedb files to some path matching "$HOME/.sincedb*"
   config :sincedb_path, :validate => :string
 
-  # How often to write a since database with the current position of
+  # How often (in seconds) to write a since database with the current position of
   # monitored log files.
   config :sincedb_write_interval, :validate => :number, :default => 15
 
@@ -83,7 +85,7 @@ class LogStash::Inputs::File < LogStash::Inputs::Base
 
     if @sincedb_path.nil?
       if ENV["SINCEDB_DIR"].nil? && ENV["HOME"].nil?
-        @logger.error("No SINCE_DB or HOME environment variable set, I don't know where " \
+        @logger.error("No SINCEDB_DIR or HOME environment variable set, I don't know where " \
                       "to keep track of the files I'm watching. Either set " \
                       "HOME or SINCEDB_DIR in your environment, or set sincedb_path in " \
                       "in your logstash config for the file input with " \
@@ -122,10 +124,10 @@ class LogStash::Inputs::File < LogStash::Inputs::Base
     @tail = FileWatch::Tail.new(@tail_config)
     @tail.logger = @logger
     @path.each { |path| @tail.tail(path) }
-    hostname = %x[hostname -f].strip
+    hostname = Socket.gethostname
 
     @tail.subscribe do |path, line|
-      @logger.debug? && @logger.debug("Received line", :path => path, :line => line)
+      @logger.debug? && @logger.debug("Received line", :path => path, :text => line)
       @codec.decode(line) do |event|
         decorate(event)
         event["host"] = hostname

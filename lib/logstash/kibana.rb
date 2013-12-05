@@ -1,3 +1,4 @@
+# encoding: utf-8
 require "rack/handler/ftw" # gem ftw
 require "ftw" # gem ftw
 require "sinatra/base" # gem sinatra
@@ -28,13 +29,11 @@ module LogStash::Kibana
     #set :public, "#{File.dirname(__FILE__)}/public"
     get "/config.js" do static_file end
     get "/index.html" do static_file end
-    get "/js/*" do static_file end
-    get "/common/*" do static_file end
-    get "/dashboards/*" do static_file end
-    get "/js/*" do static_file end
-    get "/panels/*" do static_file end
-    get "/partials/*" do static_file end
-    get "/scripts/*" do static_file end
+    get "/app/*" do static_file end
+    get "/css/*" do static_file end
+    get "/font/*" do static_file end
+    get "/img/*" do static_file end
+    get "/vendor/*" do static_file end
 
     def static_file
       # request.path_info is the full path of the request.

@@ -1,3 +1,4 @@
+# encoding: utf-8
 require "logstash/namespace"
 require "logstash/event"
 require "logstash/plugin"
@@ -43,6 +44,6 @@ module LogStash::Codecs; class Base < LogStash::Plugin
 
   public
   def clone
-    return self.class.new(@params)
+    return self.class.new(params)
   end
 end; end # class LogStash::Codecs::Base

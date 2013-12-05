@@ -1,3 +1,4 @@
+# encoding: utf-8
 require "logstash/inputs/base"
 require "logstash/namespace"
 require "socket"
@@ -84,7 +85,7 @@ class LogStash::Inputs::Unix < LogStash::Inputs::Base
           decorate(event)
           event["host"] = hostname
           event["path"] = @path
-          output_queue << e
+          output_queue << event
         end
       end # loop do
     rescue => e

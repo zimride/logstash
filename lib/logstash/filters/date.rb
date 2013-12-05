@@ -1,3 +1,4 @@
+# encoding: utf-8
 require "logstash/filters/base"
 require "logstash/namespace"
 
@@ -27,13 +28,13 @@ class LogStash::Filters::Date < LogStash::Filters::Base
   config_name "date"
   milestone 3
 
-  # specify a timezone canonical ID to be used for date parsing.
+  # Specify a timezone canonical ID to be used for date parsing.
   # The valid ID are listed on http://joda-time.sourceforge.net/timezones.html
   # Useful in case the timezone cannot be extracted from the value,
-  # and is not the platform default
+  # and is not the platform default.
   # If this is not specified the platform default will be used.
   # Canonical ID is good as it takes care of daylight saving time for you
-  # For example, America/Los_Angeles or Europe/France are valid IDs
+  # For example, America/Los_Angeles or Europe/France are valid IDs.
   config :timezone, :validate => :string
 
   # specify a locale to be used for date parsing. If this is not specified the
@@ -79,6 +80,10 @@ class LogStash::Filters::Date < LogStash::Filters::Base
   #
   config :match, :validate => :array, :default => []
 
+  # Store the matching timestamp into the given target field.  If not provided,
+  # default to updating the @timestamp field of the event.
+  config :target, :validate => :string, :default => "@timestamp"
+
   # LOGSTASH-34
   DATEPATTERNS = %w{ y d H m s S } 
 
@@ -121,6 +126,11 @@ class LogStash::Filters::Date < LogStash::Filters::Base
   public
   def register
     require "java"
+    if @match.length < 2
+      raise LogStash::ConfigurationError, I18n.t("logstash.agent.configuration.invalid_plugin_register", 
+        :plugin => "filter", :type => "date",
+        :error => "The match setting should contains first a field name and at least one date format, current value is #{@match}")
+    end
     # TODO(sissel): Need a way of capturing regexp configs better.
     locale = parseLocale(@config["locale"][0]) if @config["locale"] != nil and @config["locale"][0] != nil
     setupMatcher(@config["match"].shift, locale, @config["match"] )
@@ -178,11 +188,11 @@ class LogStash::Filters::Date < LogStash::Filters::Base
 
   public
   def filter(event)
-    @logger.debug? && @logger.debug("Date filter: received event", :type => event.type)
+    @logger.debug? && @logger.debug("Date filter: received event", :type => event["type"])
     return unless filter?(event)
     @parsers.each do |field, fieldparsers|
       @logger.debug? && @logger.debug("Date filter looking for field",
-                                      :type => event.type, :field => field)
+                                      :type => event["type"], :field => field)
       next unless event.include?(field)
 
       fieldvalues = event[field]
@@ -208,12 +218,13 @@ class LogStash::Filters::Date < LogStash::Filters::Base
 
           time = time.withZone(UTC)
           # Convert joda DateTime to a ruby Time
-          event["@timestamp"] = Time.utc(
+          event[@target] = Time.utc(
             time.getYear, time.getMonthOfYear, time.getDayOfMonth,
             time.getHourOfDay, time.getMinuteOfHour, time.getSecondOfMinute,
             time.getMillisOfSecond * 1000
           )
-          @logger.debug? && @logger.debug("Date parsing done", :value => value, :timestamp => event["@timestamp"])
+
+          @logger.debug? && @logger.debug("Date parsing done", :value => value, :timestamp => event[@target])
         rescue StandardError, JavaException => e
           @logger.warn("Failed parsing date from field", :field => field,
                        :value => value, :exception => e)

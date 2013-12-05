@@ -1,3 +1,4 @@
+# encoding: utf-8
 require "logstash/outputs/base"
 require "logstash/namespace"
 
@@ -37,10 +38,9 @@ class LogStash::Outputs::Mongodb < LogStash::Outputs::Base
     conn = uriParsed.connection({})
     if uriParsed.auths.length > 0
       uriParsed.auths.each do |auth|
-        if auth['db_name'] and auth['username'] and auth['password']
-            conn.add_auth(auth['db_name'], auth['username'],
-                          auth['password'], auth['db_name'])
-        end
+        if !auth['db_name'].nil?
+          conn.add_auth(auth['db_name'], auth['username'], auth['password'], nil)
+        end 
       end
       conn.apply_saved_authentication()
     end
@@ -53,12 +53,10 @@ class LogStash::Outputs::Mongodb < LogStash::Outputs::Base
 
     begin
       if @isodate
-        # The mongodb driver will turn ruby Time object into mongodb date time.
-        # Given that the logstash event already uses a Time object for the
-        # timesamp we're all set.
+        # the mongodb driver wants time values as a ruby Time object.
+        # set the @timestamp value of the document to a ruby Time object, then.
         document = event.to_hash
       else
-        # Set the @timestamp value of the document to a string.
         document = event.to_hash.merge("@timestamp" => event["@timestamp"].to_json)
       end
       if @generateId
@@ -69,11 +67,11 @@ class LogStash::Outputs::Mongodb < LogStash::Outputs::Base
       @logger.warn("Failed to send event to MongoDB", :event => event, :exception => e,
                    :backtrace => e.backtrace)
       if e.error_code == 11000
-        # On a duplicate key error, skip the insert.
-        # We could check if the duplicate key err is the _id key
-        # and generate a new primary key.
-        # If the duplicate key error is on another field, we have no way
-        # to fix the issue.
+          # On a duplicate key error, skip the insert.
+          # We could check if the duplicate key err is the _id key
+          # and generate a new primary key.
+          # If the duplicate key error is on another field, we have no way
+          # to fix the issue.
       else
         sleep @retry_delay
         retry

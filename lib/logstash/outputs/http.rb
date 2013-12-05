@@ -1,7 +1,6 @@
+# encoding: utf-8
 require "logstash/outputs/base"
 require "logstash/namespace"
-require 'net/http'
-require 'uri'
 
 class LogStash::Outputs::Http < LogStash::Outputs::Base
   # This output lets you `PUT` or `POST` events to a
@@ -27,9 +26,6 @@ class LogStash::Outputs::Http < LogStash::Outputs::Base
   # Custom headers to use
   # format is `headers => ["X-My-Header", "%{host}"]
   config :headers, :validate => :hash
-
-  # Number of seconds to wait after failure before retrying
-  config :retry_delay, :validate => :number, :default => 3, :required => false
 
   # Content type
   #
@@ -61,13 +57,17 @@ class LogStash::Outputs::Http < LogStash::Outputs::Base
 
   public
   def register
+    require "ftw"
+    require "uri"
+    @agent = FTW::Agent.new
+    # TODO(sissel): SSL verify mode?
+
     if @content_type.nil?
       case @format
         when "form" ; @content_type = "application/x-www-form-urlencoded"
         when "json" ; @content_type = "application/json"
       end
     end
-
     if @format == "message"
       if @message.nil?
         raise "message must be set if message format is used"
@@ -94,17 +94,22 @@ class LogStash::Outputs::Http < LogStash::Outputs::Base
       evt = event.to_hash
     end
 
-    uri = URI(event.sprintf(@url))
     case @http_method
     when "put"
-      request = Net::HTTP::Put.new(uri.path)
+      request = @agent.put(event.sprintf(@url))
     when "post"
-      request = Net::HTTP::Post.new(uri.path)
+      request = @agent.post(event.sprintf(@url))
     else
       @logger.error("Unknown verb:", :verb => @http_method)
     end
+    
+    if @headers
+      @headers.each do |k,v|
+        request.headers[k] = event.sprintf(v)
+      end
+    end
 
-    request.add_field("Content-Type", @content_type)
+    request["Content-Type"] = @content_type
 
     begin
       if @format == "json"
@@ -114,30 +119,18 @@ class LogStash::Outputs::Http < LogStash::Outputs::Base
       else
         request.body = encode(evt)
       end
+      #puts "#{request.port} / #{request.protocol}"
+      #puts request
+      #puts 
+      #puts request.body
+      response = @agent.execute(request)
 
-      response = Net::HTTP.start(uri.hostname, uri.port,
-        :use_ssl => uri.scheme == 'https') do |http|
-          http.request(request)
-      end
-
-      if (500 .. 599).include? response.code.to_i
-        raise
-      elsif (400 .. 499).include? response.code
-        @logger.warn("Invalid request status: #{response.code}", :request => request, :response => response, :exception => e, :stacktrace => e.backtrace)
-        return
-      end
+      # Consume body to let this connection be reused
+      rbody = ""
+      response.read_body { |c| rbody << c }
+      #puts rbody
     rescue Exception => e
-      if e.class == Errno::ECONNREFUSED
-        @logger.warn("Connection refused", :request => request, :response => response, :exception => e, :stacktrace => e.backtrace)
-      elsif e.class == Timeout::Error
-        @logger.warn("Request timeout", :request => request, :response => response, :exception => e, :stacktrace => e.backtrace)
-      elsif response && (500 .. 599).include?(response.code.to_i)
-        @logger.warn("Request status: #{response.code}", :request => request, :response => response, :exception => e, :stacktrace => e.backtrace)
-      else
-        @logger.warn("Unhandled exception", :request => request, :response => response, :exception => e, :stacktrace => e.backtrace)
-      end
-        sleep @retry_delay
-        retry
+      @logger.warn("Unhandled exception", :request => request, :response => response, :exception => e, :stacktrace => e.backtrace)
     end
   end # def receive
 

@@ -1,3 +1,4 @@
+# encoding: utf-8
 require "logstash/namespace"
 require "logstash/outputs/base"
 require "stud/buffer"
@@ -35,6 +36,7 @@ class LogStash::Outputs::ElasticSearch < LogStash::Outputs::Base
   # The index to write events to. This can be dynamic using the %{foo} syntax.
   # The default value will partition your indices by day so you can more easily
   # delete old data or only search specific date ranges.
+  # Indexes may not contain uppercase characters.
   config :index, :validate => :string, :default => "logstash-%{+YYYY.MM.dd}"
 
   # The index type to write events to. Generally you should try to write only
@@ -56,7 +58,7 @@ class LogStash::Outputs::ElasticSearch < LogStash::Outputs::Base
 
   # The port for ElasticSearch transport to use. This is *not* the ElasticSearch
   # REST API port (normally 9200).
-  config :port, :validate => :string, :default => "9300-9400"
+  config :port, :validate => :string, :default => "9300-9305"
 
   # The name/address of the host to bind to for ElasticSearch clustering
   config :bind_host, :validate => :string
@@ -164,8 +166,10 @@ class LogStash::Outputs::ElasticSearch < LogStash::Outputs::Base
       end
     end
 
-    request.on(:success) { }
-    request.execute
+    request.execute!
+    # TODO(sissel): Handle errors. Since bulk requests could mostly succeed
+    # (aka partially fail), we need to figure out what documents need to be
+    # retried.
   end # def flush
 
 end # class LogStash::Outputs::Elasticsearch

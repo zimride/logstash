@@ -1,7 +1,9 @@
 #!/bin/bash
 
 
-VERSION="$(awk -F\" '/LOGSTASH_VERSION/ {print $2}' $(dirname $0)/../lib/logstash/version.rb)"
+[ ! -f ../.VERSION.mk ] && make -C .. .VERSION.mk
+
+. ../.VERSION.mk
 
 if [ "$#" -ne 2 ] ; then
   echo "Usage: $0 <os> <release>"
@@ -93,10 +95,19 @@ case $os in
       --after-install centos/after-install.sh \
       -f -C $destdir .
     ;;
-  ubuntu|debian) 
+  ubuntu|debian)
+    if ! echo $VERSION | grep -q '\.(dev\|rc.*)'; then
+      # This is a dev or RC version... So change the upstream version
+      # example: 1.2.2.dev => 1.2.2~dev
+      # This ensures a clean upgrade path.
+      VERSION="$(echo $VERSION | sed 's/\.\(dev\|rc.*\)/~\1/')"
+    fi
+
     fpm -s dir -t deb -n logstash -v "$VERSION" \
-      -a all --iteration 1-$os \
-      -d "java6-runtime" \
+      -a all --iteration "${os}1" \
+      --url "http://logstash.net" \
+      --description "An extensible logging pipeline" \
+      -d "java6-runtime-headless | java7-runtime-headless" \
       --deb-user root --deb-group root \
       --before-install $os/before-install.sh \
       --before-remove $os/before-remove.sh \

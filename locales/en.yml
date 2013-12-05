@@ -35,6 +35,14 @@ en:
       plugin-type-loading-error: >-
         Could not find any plugin type named '%{type}'. Check for typos.
         Valid plugin types are 'input' 'filter' and 'output'
+      output-worker-unsupported: >-
+        %{plugin} output plugin: setting 'workers => %{worker_count}' is not
+        supported by this plugin. I will continue working as if you had not set
+        this setting.
+      output-worker-unsupported-with-message: >-
+        %{plugin} output plugin: setting 'workers => %{worker_count}' is not
+        supported by this plugin. I will continue working as if you had not set
+        this setting.
     plugin:
       milestone:
         "0": >-
@@ -89,6 +97,10 @@ en:
             }
         invalid_plugin_settings: >-
           Something is wrong with your configuration.
+        invalid_plugin_register: >-
+          Cannot register %{plugin} %{type} plugin.
+          The error reported is: 
+            %{error}
         plugin_path_missing: >-
           You specified a plugin path that does not exist: %{path}
         no_plugins_found: |-
@@ -134,7 +146,8 @@ en:
           Increase verbosity of logstash internal logs.
           Specifying once will show 'informational'
           logs. Specifying twice will show 'debug'
-          logs.
+          logs. This flag is deprecated. You should use
+          --verbose or --debug instead.
         version: |+
           Emit the version of logstash and its friends,
           then exit.
