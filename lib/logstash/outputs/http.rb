@@ -1,4 +1,3 @@
-# encoding: utf-8
 require "logstash/outputs/base"
 require "logstash/namespace"
 
@@ -11,7 +10,7 @@ class LogStash::Outputs::Http < LogStash::Outputs::Base
   # event json itself.
 
   config_name "http"
-  milestone 1
+  plugin_status 1
 
   # URL to use
   config :url, :validate => :string, :required => :true
@@ -24,59 +23,35 @@ class LogStash::Outputs::Http < LogStash::Outputs::Base
   config :http_method, :validate => ["put", "post"], :required => :true
 
   # Custom headers to use
-  # format is `headers => ["X-My-Header", "%{host}"]
+  # format is `headers => ["X-My-Header", "%{@source_host}"]
   config :headers, :validate => :hash
 
   # Content type
-  #
-  # If not specified, this defaults to the following:
-  #
-  # * if format is "json", "application/json"
-  # * if format is "form", "application/x-www-form-urlencoded"
-  config :content_type, :validate => :string
+  config :content_type, :validate => :string, :default => "application/json"
 
-  # This lets you choose the structure and parts of the event that are sent.
-  #
-  #
-  # For example:
-  #
-  #    mapping => ["foo", "%{host}", "bar", "%{type}"]
+  # Mapping
+  # Normally Logstash will send the `json_event`
+  # as is
+  # If you provide a Logstash hash here,
+  # it will be mapped into a JSON structure
+  # e.g.
+  # `mapping => ["foo", "%{@source_host}", "bar", "%{@type}"]
+  # with generate a json like so:
+  # `{"foo":"localhost.domain.com","bar":"stdin-type"}`
   config :mapping, :validate => :hash
-
-  # Set the format of the http body.
-  #
-  # If form, then the body will be the mapping (or whole event) converted
-  # into a query parameter string (foo=bar&baz=fizz...)
-  #
-  # If message, then the body will be the result of formatting the event according to message
-  #
-  # Otherwise, the event is sent as json.
-  config :format, :validate => ["json", "form", "message"], :default => "json"
-
-  config :message, :validate => :string
 
   public
   def register
-    require "ftw"
+    require "net/https"
     require "uri"
-    @agent = FTW::Agent.new
-    # TODO(sissel): SSL verify mode?
-
-    if @content_type.nil?
-      case @format
-        when "form" ; @content_type = "application/x-www-form-urlencoded"
-        when "json" ; @content_type = "application/json"
-      end
-    end
-    if @format == "message"
-      if @message.nil?
-        raise "message must be set if message format is used"
-      end
-      if @content_type.nil?
-        raise "content_type must be set if message format is used"
-      end
-      unless @mapping.nil?
-        @logger.warn "mapping is not supported and will be ignored if message format is used"
+    @uri = URI.parse(@url)
+    @client = Net::HTTP.new(@uri.host, @uri.port)
+    if @uri.scheme == "https"
+      @client.use_ssl = true
+      if @verify_ssl == true
+        @client.verify_mode = OpenSSL::SSL::VERIFY_PEER
+      else
+        @client.verify_mode = OpenSSL::SSL::VERIFY_NONE
       end
     end
   end # def register
@@ -86,57 +61,35 @@ class LogStash::Outputs::Http < LogStash::Outputs::Base
     return unless output?(event)
 
     if @mapping
-      evt = Hash.new
+      @evt = Hash.new
       @mapping.each do |k,v|
-        evt[k] = event.sprintf(v)
+        @evt[k] = event.sprintf(v)
       end
     else
-      evt = event.to_hash
+      @evt = event
     end
 
     case @http_method
     when "put"
-      request = @agent.put(event.sprintf(@url))
+      @request = Net::HTTP::Put.new(@uri.path)
     when "post"
-      request = @agent.post(event.sprintf(@url))
+      @request = Net::HTTP::Post.new(@uri.path)
     else
       @logger.error("Unknown verb:", :verb => @http_method)
     end
     
     if @headers
       @headers.each do |k,v|
-        request.headers[k] = event.sprintf(v)
+        @request.add_field(k, event.sprintf(v))
       end
     end
-
-    request["Content-Type"] = @content_type
+    @request.add_field("Content-Type", @content_type)
 
     begin
-      if @format == "json"
-        request.body = evt.to_json
-      elsif @format == "message"
-        request.body = event.sprintf(@message)
-      else
-        request.body = encode(evt)
-      end
-      #puts "#{request.port} / #{request.protocol}"
-      #puts request
-      #puts 
-      #puts request.body
-      response = @agent.execute(request)
-
-      # Consume body to let this connection be reused
-      rbody = ""
-      response.read_body { |c| rbody << c }
-      #puts rbody
+      @request.body = @evt.to_json
+      response = @client.request(@request)
     rescue Exception => e
-      @logger.warn("Unhandled exception", :request => request, :response => response, :exception => e, :stacktrace => e.backtrace)
+      @logger.warn("Unhandled exception", :request => @request, :response => @response)
     end
   end # def receive
-
-  def encode(hash)
-    return hash.collect do |key, value|
-      CGI.escape(key) + "=" + CGI.escape(value)
-    end.join("&")
-  end # def encode
 end
